@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!-- ImageXex settings for the SkyPortal360 Dashlaunch plugin (a system DLL). -->
+<xex>
+  <format>
+    <compressed/>
+  </format>
+  <exportcontainer name="SkyPortal360.xex"/>
+  <sysdll/>
+  <mediatypes>
+    <harddisk/>
+  </mediatypes>
+  <!-- Each loaded plugin needs its own base address. If another plugin already uses this range
+       (Dashlaunch logs a load failure), move it to another free 1 MB-aligned address. -->
+  <baseaddr addr="0x91C80000"/>
+</xex>

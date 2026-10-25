@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!-- ImageXex settings for the Peer Pressure build: a TITLE dll (no <sysdll/>), which Peer
+     Pressure sideloads into the Skylanders game and unloads when the game exits. -->
+<xex>
+  <format>
+    <unencrypted/>
+    <compressed/>
+  </format>
+  <mediatypes>
+    <allpackages/>
+  </mediatypes>
+  <gameregion>
+    <all/>
+  </gameregion>
+  <!-- Must not overlap the game's own image (title xex images start at 0x82000000). If Peer
+       Pressure shows no "dll loaded" toast with a correct .ini, try another free address. -->
+  <baseaddr addr="0x8A000000"/>
+</xex>

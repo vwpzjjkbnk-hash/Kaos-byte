@@ -1,0 +1,14 @@
+Put your Skylanders figure dumps in this folder (sub-folders are fine, two levels deep).
+
+Each file must be a raw 1024-byte MIFARE 1K dump of the toy (.bin, .dump, .sky, .dmp or
+no extension). Dump your own figures with a Proxmark, ACR122U, Flipper Zero (export as .bin),
+an NFC phone app that saves raw 1K dumps, or a real portal with SkyReader on a PC.
+
+The file name (without extension) is what the on-screen menu shows, so name them nicely:
+  Spyro.bin
+  Giants\Tree Rex.bin
+  Trap Team\Traps\Kaos Trap.bin
+  SuperChargers\Hot Streak.bin
+
+The game's progress is written back into these files. The first time a file is changed, the
+original is copied to SkyPortal\Backups\ (never overwritten), so you can always go back.
