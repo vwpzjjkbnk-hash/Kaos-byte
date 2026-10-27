@@ -19,7 +19,8 @@ const int kStatusActiveByte = 6;
 // --------------------------------------------------------------------------------------------
 
 VirtualPortal::VirtualPortal()
-    : q_head_(0), q_count_(0), active_(false), speaker_(false), counter_(0), commands_seen_(0) {
+    : q_head_(0), q_count_(0), active_(false), speaker_(false), counter_(0), commands_seen_(0),
+      status_reports_(0) {
   memset(slots_, 0, sizeof(slots_));
   memset(pending_, 0, sizeof(pending_));
   memset(queue_, 0, sizeof(queue_));
@@ -136,6 +137,7 @@ void VirtualPortal::StatusReportLocked(u8* r) {
   r[4] = (u8)(states >> 24);
   r[5] = counter_++;
   r[kStatusActiveByte] = active_ ? 1 : 0;
+  ++status_reports_;
   // Move transitions along once they have been reported.
   for (int i = 0; i < kMaxSlots; ++i) {
     Slot& s = slots_[i];
@@ -303,6 +305,19 @@ u32 VirtualPortal::CommandsSeen() const {
 bool VirtualPortal::Active() const {
   Guard g(lock_);
   return active_;
+}
+
+bool VirtualPortal::RemovalPending() const {
+  Guard g(lock_);
+  for (int i = 0; i < kMaxSlots; ++i) {
+    if (slots_[i].state == kRemoving) return true;
+  }
+  return false;
+}
+
+u32 VirtualPortal::StatusReports() const {
+  Guard g(lock_);
+  return status_reports_;
 }
 
 // --------------------------------------------------------------------------------------------

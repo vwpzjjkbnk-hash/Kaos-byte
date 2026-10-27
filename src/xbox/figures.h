@@ -35,11 +35,14 @@ class FigureLibrary {
   int OlderCount() const { return older_count_; }  // older releases left out at the last Scan()
   int UnreadableDirs() const { return unreadable_dirs_; }  // empty or unopenable folders at the last Scan()
 
-  // Browsing order (folder order, only files that exist and are 1024 bytes).
+  // Browsing order: folder by folder; within a folder by element (Air, Earth, Fire, Water, Magic,
+  // Tech, Life, Undead, Light, Dark, then none), then by name. Only files that exist and are
+  // 1024 bytes.
   int BrowseCount() const { return browse_count_; }
   int BrowseAt(int pos) const;      // entry id, or -1
   int BrowsePos(int id) const;      // position of an entry id, or -1
-  // Browse position of the first figure in the next (+1) / previous (-1) folder.
+  // Browse position of the first figure in the next (+1) / previous (-1) section: a folder, or
+  // one element's figures within a folder.
   int GroupJump(int pos, int dir) const;
 
   const char* Name(int id) const;  // display name (index), else the file name without extension
@@ -51,6 +54,7 @@ class FigureLibrary {
   int Element(int id);
   int Game(int id) const;                                // 1-6 (index or top folder), 0 = unknown
   void Series(int id, char* out, int cap) const;         // "Series 2", "Legendary", ... or ""
+  int CharacterId(int id) const;                         // figures.idx character (toy) id, 0 = none
   // The first game the figure works in (1-6), from figures.idx (by figure, or by the character
   // id in the dump), else the top folder; 0 = unknown (always shown).
   int FirstGame(int id);
@@ -74,6 +78,8 @@ class FigureLibrary {
     int family;              // figures.idx character family (0 = none)
   };
   void ReadRelease(int id);
+  bool Before(int a, int b) const;        // browse order (SortBrowse)
+  bool SameSection(int a, int b) const;   // same folder and element (GroupJump)
   void ScanDir(const char* rel_dir, int depth);
   void AddFile(const char* rel);
   void FullPath(int id, char* out, size_t cap) const;

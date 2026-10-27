@@ -18,16 +18,56 @@ char g_log_path[MAX_PATH] = {0};
 sp::Lock g_log_lock;
 const DWORD kMaxLogBytes = 256 * 1024;
 DWORD g_log_bytes = 0;
+
+// Copies `src` over `dst` (16 KB at a time). Used to keep the last session's log and trace:
+// both are started fresh when the plugin loads, and after a crash that is the next console
+// start (Dashlaunch) or the next game start (Peer Pressure), before anyone could copy them.
+void KeepPrevious(const char* src, const char* dst) {
+  HANDLE in = CreateFile(src, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                         FILE_ATTRIBUTE_NORMAL, NULL);
+  if (in == INVALID_HANDLE_VALUE) return;
+  HANDLE out = CreateFile(dst, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (out != INVALID_HANDLE_VALUE) {
+    static char buf[16 * 1024];
+    DWORD got = 0;
+    while (ReadFile(in, buf, sizeof(buf), &got, NULL) && got > 0) {
+      DWORD put = 0;
+      WriteFile(out, buf, got, &put, NULL);
+    }
+    FlushFileBuffers(out);
+    CloseHandle(out);
+  }
+  CloseHandle(in);
+}
+
+// "X:\dir\name.ext" -> "X:\dir\name-previous.ext"
+void PreviousName(const char* path, char* out, int cap) {
+  strncpy_s(out, cap, path, _TRUNCATE);
+  char* dot = strrchr(out, '.');
+  char* slash = strrchr(out, '\\');
+  char ext[16] = "";
+  if (dot && (!slash || dot > slash)) {
+    strncpy_s(ext, sizeof(ext), dot, _TRUNCATE);
+    *dot = 0;
+  }
+  const int len = (int)strlen(out);
+  sprintf_s(out + len, cap - len, "-previous%s", ext);
+}
 }  // namespace
 
 void LogOpen(const char* path) {
   sp::Guard g(g_log_lock);
   strncpy_s(g_log_path, sizeof(g_log_path), path, _TRUNCATE);
+  char previous[MAX_PATH];
+  PreviousName(g_log_path, previous, sizeof(previous));
+  KeepPrevious(g_log_path, previous);
   HANDLE h = CreateFile(g_log_path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS,
                         FILE_ATTRIBUTE_NORMAL, NULL);
   if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
   g_log_bytes = 0;
 }
+
+void LogRecoverLock() { g_log_lock.Reinit(); }
 
 void Log(const char* fmt, ...) {
   char line[512];
@@ -49,6 +89,9 @@ void Log(const char* fmt, ...) {
   SetFilePointer(h, 0, NULL, FILE_END);
   DWORD written = 0;
   WriteFile(h, line, (DWORD)n, &written, NULL);
+  // On the disk before anything else happens: if the console then crashes, the line is kept
+  // (without this, everything since the drive cache was last written out is lost).
+  FlushFileBuffers(h);
   CloseHandle(h);
   g_log_bytes += written;
 }
@@ -58,12 +101,12 @@ void Log(const char* fmt, ...) {
 // --------------------------------------------------------------------------------------------
 
 namespace {
-char g_trace[4096];
+char g_trace[16384];
 int g_trace_len = 0;
 }  // namespace
 
 void Trace(const char* fmt, ...) {
-#if defined(SKYPORTAL_SIDELOAD)
+#if defined(SKYPORTAL_SIDELOAD) || defined(SKYPORTAL_XRT)
   va_list ap;
   va_start(ap, fmt);
   char line[256];
@@ -73,6 +116,10 @@ void Trace(const char* fmt, ...) {
   line[n++] = '\r';
   line[n++] = '\n';
   if (g_trace_len + n >= (int)sizeof(g_trace)) return;
+  if (g_trace_len == 0) {  // the first line of this session: keep the last session's
+    KeepPrevious("\\Device\\Harddisk0\\Partition1\\StaticRift_trace.txt",
+                 "\\Device\\Harddisk0\\Partition1\\StaticRift_trace-previous.txt");
+  }
   memcpy(g_trace + g_trace_len, line, n);
   g_trace_len += n;
   // Rewrite the whole (small) file each time: no seeking, and it survives a crash mid-startup.
@@ -81,6 +128,7 @@ void Trace(const char* fmt, ...) {
   if (h == INVALID_HANDLE_VALUE) return;
   DWORD written = 0;
   WriteFile(h, g_trace, (DWORD)g_trace_len, &written, NULL);
+  FlushFileBuffers(h);
   CloseHandle(h);
 #else
   (void)fmt;
@@ -90,6 +138,36 @@ void Trace(const char* fmt, ...) {
 // --------------------------------------------------------------------------------------------
 // Drives and files
 // --------------------------------------------------------------------------------------------
+
+bool StartThread(LPTHREAD_START_ROUTINE fn, DWORD stack_bytes) {
+  HANDLE thread = NULL;
+#if defined(SKYPORTAL_SIDELOAD) || defined(SKYPORTAL_XRT)
+  // (The open toolchain's CreateThread makes system threads in the Dashlaunch build.)
+  DWORD id = 0;
+  thread = CreateThread(NULL, stack_bytes, fn, NULL, 0, &id);
+#else
+  DWORD id = 0;
+  ExCreateThread(&thread, stack_bytes, &id, (PVOID)XapiThreadStartup, fn, NULL,
+                 EX_CREATE_FLAG_SYSTEM);
+#endif
+  if (!thread) return false;
+  CloseHandle(thread);
+  return true;
+}
+
+bool StartGameThread(LPTHREAD_START_ROUTINE fn, DWORD stack_bytes) {
+  HANDLE thread = NULL;
+  DWORD id = 0;
+#if defined(SKYPORTAL_XRT)
+  // Not a system thread (no EX_CREATE_FLAG_SYSTEM): it joins the calling game thread's process.
+  ExCreateThread(&thread, stack_bytes, &id, (PVOID)XapiThreadStartup, fn, NULL, 0);
+#else
+  thread = CreateThread(NULL, stack_bytes, fn, NULL, 0, &id);
+#endif
+  if (!thread) return false;
+  CloseHandle(thread);
+  return true;
+}
 
 bool MountDrive(const char* drive, const char* device, bool system_link) {
   char link[MAX_PATH];

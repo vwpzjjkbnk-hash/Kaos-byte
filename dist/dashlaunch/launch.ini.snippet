@@ -1,4 +1,11 @@
-; Add to Dashlaunch's launch.ini (Hdd:\launch.ini or Usb:\launch.ini), in the [Plugins] section.
-; Use the first free pluginN slot.
+; Project Kaos-Byte2.0v (The Static Rift), Dashlaunch build for RGH / JTAG / BadUpdate + XeUnshackle.
+; Add one of the lines below to Dashlaunch's launch.ini, in the [Plugins] section, using the first
+; free pluginN number (plugin1 ... plugin5).
+;
+; BadUpdate + XeUnshackle: the launch.ini in the root of the USB stick you run BadUpdate from (one
+; on the hard drive isn't read). Put the Plugins folder on the stick too and use the Usb: line.
+; RGH / JTAG: the launch.ini Dashlaunch uses (root of Hdd1, or of a USB stick); the Hdd: line.
 [Plugins]
-plugin1 = Hdd:\SkyPortal\SkyPortal360.xex
+plugin1 = Usb:\Plugins\Kaos-Byte2.0v-RGH.xex
+; or, with the Plugins folder on Hdd1:
+; plugin1 = Hdd:\Plugins\Kaos-Byte2.0v-RGH.xex

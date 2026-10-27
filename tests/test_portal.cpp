@@ -165,7 +165,10 @@ static void TestFigureLifecycle() {
   for (int i = 0; i < 10; ++i) CHECK(Poll(b, r));
   CHECK(p.Remove(0));
   CHECK(p.FirstFreeSlot() == 1);
+  CHECK(p.RemovalPending());                             // (the delayed "swap in" waits on this)
+  const u32 reports = p.StatusReports();
   CHECK(Poll(b, r) && r[0] == 'S' && (r[1] & 3) == 2);  // removal reported to the game...
+  CHECK(!p.RemovalPending() && p.StatusReports() == reports + 1);
   CHECK(p.FirstFreeSlot() == 0);                         // ...so the slot is reusable
   // (discard the dirty copy from this removal; nothing was written)
   CHECK(!p.TakeDirty(&tag, saved));

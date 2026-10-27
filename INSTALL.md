@@ -1,5 +1,8 @@
 # Installing Project Kaos-Byte2.0v (The Static Rift)
 
+This guide is for consoles with **Peer Pressure**. For **RGH / JTAG / BadUpdate + XeUnshackle**
+(Dashlaunch), see **[INSTALL-RGH.md](INSTALL-RGH.md)** and use the RGH release.
+
 ## What you need
 
 - An Xbox 360 with **Peer Pressure** installed (you should already have

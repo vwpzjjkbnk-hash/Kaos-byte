@@ -15,7 +15,7 @@ It comes in two builds from the same source:
 
 | Your console | Build | Loaded by |
 |---|---|---|
-| RGH / JTAG, or BadUpdate + XeUnshackle (Dashlaunch) | `Release` → `SkyPortal360.xex` | Dashlaunch `launch.ini` plugin |
+| RGH / JTAG, or BadUpdate + XeUnshackle (Dashlaunch) | `make -C xrt VARIANT=rgh` → `Kaos-Byte2.0v-RGH.xex` (or MSVC `Release`) | Dashlaunch `launch.ini` plugin |
 | **Peer Pressure** softmod | `Release_PeerPressure` → `SkyPortal360.xex` | Peer Pressure DLL sideloading |
 
 Peer Pressure doesn't load Dashlaunch plugins. It loads per-game title DLLs instead, which

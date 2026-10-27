@@ -150,6 +150,23 @@ bool g_swap_rb = false;
 // Diagnostics.
 DWORD g_opens = 0, g_renders = 0, g_last_render_ms = 0, g_alloc_fail = 0;
 
+// Dashlaunch build: each step of opening the menu goes in the log (written to disk line by line),
+// so if the console crashes there the last line says where. The first few opens per game only.
+#if !defined(SKYPORTAL_SIDELOAD)
+volatile LONG g_steps_left = 80;
+#define STEP(...)                                                  \
+  do {                                                             \
+    if (g_steps_left > 0) {                                        \
+      --g_steps_left;                                              \
+      util::Log("Overlay step: " __VA_ARGS__);                     \
+    }                                                              \
+  } while (0)
+#else
+#define STEP(...) \
+  do {            \
+  } while (0)
+#endif
+
 // ---- scan-out pinning ----
 // The display controller scans out whatever D1GRPH_PRIMARY_SURFACE_ADDRESS holds (a physical
 // address; the kernel writes the game's front buffer there on every swap). On hardware, VdSwap
@@ -160,6 +177,18 @@ volatile DWORD* const kScanoutAddress = (volatile DWORD*)(0x7FC80000 + 0x1844 * 
 volatile DWORD* const kFlipControl = (volatile DWORD*)(0x7FC80000 + 0x1852 * 4);  // D1GRPH_FLIP_CONTROL
 // (sp_pin_phys: physical address to keep on screen, 0 = leave it alone.)
 volatile bool g_pin_active = false;   // the pin thread is holding the register
+// The display registers as the scan-out thread last read them (it reads them every few ms), for
+// code on other threads: in the Dashlaunch build only the game's own threads touch them, as in the
+// Peer Pressure build, where everything ran on game threads.
+volatile DWORD g_reg_scanout = 0, g_reg_flip = 0, g_reg_update = 0;
+// Dashlaunch build: the drawing and scan-out threads are started from the game's render thread
+// (the first frame it presents through VdSwap), so they are the game's own threads, as in the Peer
+// Pressure build, and end with the game. The display memory, the display registers and the game's
+// frames are only usable from the game's threads: a system thread asking for display memory
+// froze the console. g_gen counts games, so a thread of an earlier game never touches the next's.
+volatile LONG g_need_game_threads = 0;
+volatile LONG g_gen = 0;
+volatile LONG g_draw_running = 0;
 DWORD g_pin_fixes = 0, g_pin_fixes_total = 0, g_pin_start = 0, g_pin_ms = 0;
 DWORD g_pin_game_fixes = 0, g_pin_game_fixes_total = 0;  // ... from the game's frame (not a menu one)
 DWORD g_flipctl_at_open = 0xFFFFFFFF;
@@ -274,29 +303,41 @@ void FreeImage(OwnedImage* o) {
   memset(o, 0, sizeof(*o));
 }
 
+// Dashlaunch build: the game has exited. The menu's memory belonged to the game (its threads asked
+// for it) and went back with it: it's let go of without being freed, so nothing is freed twice.
+volatile bool g_abandon = false;
+
 void FreeAll() {
+  const bool keep = g_abandon;
   for (int i = 0; i < kSurfaces; ++i) {
     sp_surf_phys[i] = 0;
-    if (!g_surf[i].borrowed) DisplayFree(g_surf[i].mem);
+    if (!g_surf[i].borrowed && !keep) DisplayFree(g_surf[i].mem);
     memset(&g_surf[i], 0, sizeof(g_surf[i]));
   }
   g_surf_count = 0;
   g_shown = -1;
   g_borrowed = false;
-  WorkFree(g_strip);
-  WorkFree(g_block);
-  WorkFree(g_read);
-  WorkFree(g_stage);
-  WorkFree(g_bgwin);
+  if (!keep) {
+    WorkFree(g_strip);
+    WorkFree(g_block);
+    WorkFree(g_read);
+    WorkFree(g_stage);
+    WorkFree(g_bgwin);
+    FreeImage(&g_bg);
+    FreeImage(&g_fig);
+    FreeImage(&g_icon);
+    FreeImage(&g_logo);
+  } else {
+    memset(&g_bg, 0, sizeof(g_bg));
+    memset(&g_fig, 0, sizeof(g_fig));
+    memset(&g_icon, 0, sizeof(g_icon));
+    memset(&g_logo, 0, sizeof(g_logo));
+  }
   g_stage = 0;
   g_strip = 0;
   g_block = 0;
   g_read = 0;
   g_bgwin = 0;
-  FreeImage(&g_bg);
-  FreeImage(&g_fig);
-  FreeImage(&g_icon);
-  FreeImage(&g_logo);
 }
 
 // ---- images ----
@@ -422,7 +463,9 @@ void SetupSurface(Surface& s, const GameFrame& gf, DWORD phys, DWORD bytes) {
 int OwnFrames(const GameFrame& gf, DWORD bytes, int want, DWORD margin_kb) {
   for (int i = g_surf_count; i < want; ++i) {
     Surface& s = g_surf[i];
+    STEP("frame %d: asking for %u bytes of display memory (%u KB free)", i, bytes, FreeKB());
     s.mem = DisplayAlloc(bytes);
+    STEP("frame %d: display memory at %08X", i, (DWORD)s.mem);
     if (!s.mem) break;
     if (margin_kb && FreeKB() < margin_kb) {  // would leave the game too little
       DisplayFree(s.mem);
@@ -431,6 +474,8 @@ int OwnFrames(const GameFrame& gf, DWORD bytes, int want, DWORD margin_kb) {
     }
     s.borrowed = false;
     SetupSurface(s, gf, MmGetPhysicalAddress((DWORD)s.mem), bytes);
+    STEP("frame %d: physical %08X, front buffer word %08X, fetch %08X", i, s.phys, s.frame.fb_word,
+         s.frame.fetch[1]);
     sp_surf_phys[i] = s.phys;
     g_ever_shown[i] = false;
     g_surf_count = i + 1;
@@ -459,14 +504,17 @@ void ResumeGame() {
 // present (whose picture the GPU is finishing) is drawn first; the one on screen after that.
 bool BorrowFrames(GameFrame* used) {
   if (!g_allow_pause) return false;
+  STEP("pausing the game to use its own frames");
   g_pause_req = 1;
   __sync();
   const DWORD t0 = GetTickCount();
   while (!g_paused && g_want_open && !g_stop && GetTickCount() - t0 < 2000) Sleep(2);
   if (!g_paused) {
     g_pause_req = 0;
+    STEP("the game didn't pause within 2 s");
     return false;
   }
+  STEP("game paused");
   GameFrame cur, prev;
   ReadGame(&cur);
   prev = g_game_prev;
@@ -520,7 +568,9 @@ bool AllocateFrames(GameFrame& gf) {
   }
   // What the menu can't do without: a strip of 32 rows and its tiled copy, or 8 rows written
   // straight to the frame when memory is short; and the file buffer.
+  STEP("%d frame(s)%s; working memory next", g_surf_count, g_borrowed ? " (the game's own)" : "");
   g_read = (unsigned char*)WorkAlloc(kReadChunk);
+  STEP("file buffer at %08X", (DWORD)g_read);
   g_strip_rows = kStripRows;
   g_strip = (unsigned int*)WorkAlloc((DWORD)(gf.w * kStripRows * 4));
   if (g_strip) g_block = (BYTE*)WorkAlloc((DWORD)(gf.pitch * kStripRows * 4));
@@ -546,6 +596,8 @@ bool AllocateFrames(GameFrame& gf) {
   if (g_surf_count == 1 && !g_borrowed && FreeKB() > bytes / 1024 + kMarginKB) {
     g_stage = (BYTE*)WorkAlloc(bytes);
   }
+  STEP("working memory: strip %08X (%d rows), block %08X, background rows %08X", (DWORD)g_strip,
+       g_strip_rows, (DWORD)g_block, (DWORD)g_bgwin);
   return true;
 }
 
@@ -721,10 +773,16 @@ DWORD WINAPI PinThread(LPVOID) {
 #else
   SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 #endif
-  while (!g_stop) {
+  STEP("scan-out thread running (a thread of the game)");
+  const LONG gen = g_gen;
+  while (!g_stop && gen == g_gen) {
+    g_reg_scanout = *kScanoutAddress;
+    g_reg_flip = *kFlipControl;
+    g_reg_update = *(volatile DWORD*)(0x7FC80000 + 0x1851 * 4);
     const DWORD want = sp_pin_phys;
     if (want) {
       if (!g_pin_active) {
+        STEP("scan-out thread: holding the display on the menu (first register read next)");
         g_pin_active = true;
         g_pin_fixes = 0;
         g_pin_game_fixes = 0;
@@ -740,6 +798,7 @@ DWORD WINAPI PinThread(LPVOID) {
         g_flipctl_at_open = *kFlipControl;
       }
       const DWORD cur = *kScanoutAddress;
+      if (g_pin_fixes == 0 && g_pin_game_fixes == 0) STEP("scan-out register read: %08X", cur);
       if (cur != want) {
         if (!IsMenuSurface(cur)) {
           sp_pin_game = cur;
@@ -773,7 +832,7 @@ DWORD WINAPI PinThread(LPVOID) {
     }
     Sleep(5);
   }
-  if (g_pin_active) {
+  if (g_pin_active && gen == g_gen) {
     if (IsMenuSurface(*kScanoutAddress) && sp_pin_game) *kScanoutAddress = sp_pin_game;
     if (sp_flipctl_saved) *kFlipControl = 1;
     sp_flipctl_saved = 0;
@@ -785,10 +844,20 @@ DWORD WINAPI PinThread(LPVOID) {
 
 DWORD WINAPI DrawThread(LPVOID) {
   // Normal priority: below normal, a busy game (Giants at 1080p) left it 20 s to draw a frame.
+  const LONG gen = g_gen;
+#if !defined(SKYPORTAL_SIDELOAD)
+  g_draw_running = 1;
+  // The data folder's drive names, as this game sees them (the worker's are system-wide ones).
+  util::MountDrive("SKYHDD:", "\\Device\\Harddisk0\\Partition1", false);
+  util::MountDrive("SKYUSB0:", "\\Device\\Mass0", false);
+  util::MountDrive("SKYUSB1:", "\\Device\\Mass1", false);
+  util::MountDrive("SKYUSB2:", "\\Device\\Mass2", false);
+  STEP("drawing thread running (a thread of the game)");
+#endif
   DWORD drawn_version = 0xFFFFFFFF;
   DWORD close_swap = 0, close_tick = 0;
   menu::View view;
-  while (!g_stop) {
+  while (!g_stop && gen == g_gen) {
     if (g_state == 0) {  // closed
       if (!g_want_open || !g_game_valid) {
         Sleep(10);
@@ -828,6 +897,8 @@ DWORD WINAPI DrawThread(LPVOID) {
 
     if (g_state == 0) {
       ReadGame(&g_used);
+      STEP("opening: the game's frame is %dx%d at %08X (physical %08X), %u KB free", g_used.w,
+           g_used.h, g_used.fb_word, g_used.phys, FreeKB());
       if (!AllocateFrames(g_used)) {
         util::Log("Overlay: not enough memory for the menu (%dx%d): %s; %u KB free", g_used.w,
                   g_used.h, g_alloc_what, FreeKB());
@@ -837,7 +908,7 @@ DWORD WINAPI DrawThread(LPVOID) {
       ++g_opens;
       g_state = 1;
       drawn_version = 0xFFFFFFFF;
-      g_scanout_at_open = *kScanoutAddress;
+      g_scanout_at_open = g_reg_scanout;
       if (g_opens == 1 || g_surf_count < kSurfaces || g_borrowed) {
         util::Log("Overlay: %s %d x %u bytes, %u KB free, strips of %d rows;", g_borrowed
                   ? "game paused, drawing into its own front buffers:" : "menu frames", g_surf_count,
@@ -883,7 +954,9 @@ DWORD WINAPI DrawThread(LPVOID) {
       view = g_view;
       drawn_version = g_view_version;
     }
+    STEP("loading pictures");
     LoadSceneImages(view);
+    STEP("drawing into frame %d (%08X)", target, (DWORD)g_surf[target].mem);
     Scene scene;
     scene.view = &view;
     scene.background.px = 0;  // streamed by RenderInto
@@ -899,11 +972,15 @@ DWORD WINAPI DrawThread(LPVOID) {
       if (g_surf[target].borrowed) FlushToMemory(g_surf[target].mem, g_surf[target].bytes);
     }
     if (g_renders == 1) util::Log("Overlay: first menu frame drawn in %u ms", g_last_render_ms);
+    STEP("drawn; putting frame %d on screen", target);
     if (g_want_open) Publish(target);
   }
-  sp_menu_current = 0;
-  sp_pin_phys = 0;
-  g_pause_req = 0;
+  if (gen == g_gen) {
+    sp_menu_current = 0;
+    sp_pin_phys = 0;
+    g_pause_req = 0;
+    g_draw_running = 0;
+  }
   return 0;
 }
 
@@ -945,6 +1022,11 @@ extern "C" void sp_vdswap_record(const DWORD* fetch, const DWORD* frontbuffer_pt
     g_game_valid = 1;
   }
   g_swaps = g_swaps + 1;
+  if (g_need_game_threads) {  // Dashlaunch build: this is the game's render thread
+    g_need_game_threads = 0;
+    util::StartGameThread(DrawThread, 0x10000);
+    util::StartGameThread(PinThread, 0x4000);
+  }
   // The menu wants the game's front buffers: wait here (the game's render thread, before this
   // frame is presented) until it closes. The game's other threads carry on.
   if (g_pause_req) {
@@ -979,11 +1061,12 @@ int PatchTitle(PLDR_DATA_TABLE_ENTRY title) {
 void Start(const char* root, bool swap_rb) {
   strncpy_s(g_root, sizeof(g_root), root, _TRUNCATE);
   g_swap_rb = swap_rb;
-  DWORD id = 0;
-  HANDLE t = CreateThread(NULL, 0x10000, DrawThread, NULL, 0, &id);
-  if (t) CloseHandle(t);
-  t = CreateThread(NULL, 0x4000, PinThread, NULL, 0, &id);
-  if (t) CloseHandle(t);
+#if defined(SKYPORTAL_SIDELOAD)
+  util::StartThread(DrawThread, 0x10000);
+  util::StartThread(PinThread, 0x4000);
+#else
+  g_need_game_threads = 1;  // started by each game's first frame (sp_vdswap_record)
+#endif
 }
 
 void Open(const menu::View& v) {
@@ -1008,6 +1091,34 @@ bool IsOpen() { return g_want_open; }
 bool Ready() { return g_game_valid != 0; }
 
 void SetAllowPause(bool allow) { g_allow_pause = allow; }
+
+bool TitleEnded() {
+  const bool was_open = g_want_open || g_state != 0;
+  ++g_gen;  // the old game's drawing and scan-out threads stop, if anything of them is left
+  sp_pin_game = 0;  // nothing of the old game's to put back on screen
+  sp_pin_phys = 0;
+  sp_menu_current = 0;
+  sp_flipctl_saved = 0;
+  __sync();
+  g_want_open = false;
+  g_pause_req = 0;
+  // They ended with the game; if one is somehow still finishing a frame, give it a moment.
+  for (int i = 0; i < 50 && g_draw_running; ++i) Sleep(10);
+  g_draw_running = 0;
+  g_abandon = true;  // their memory went back with the game: forget it, don't free it
+  FreeAll();
+  g_abandon = false;
+  g_state = 0;
+  g_pin_active = false;
+  g_game_valid = 0;
+  g_game_prev_valid = 0;
+  g_lock.Reinit();  // in case the game ended while one of them held it
+#if !defined(SKYPORTAL_SIDELOAD)
+  g_steps_left = 80;
+  g_need_game_threads = 1;  // the next game's first frame starts its own
+#endif
+  return was_open;
+}
 
 void Stop() {
   g_want_open = false;
@@ -1037,11 +1148,11 @@ void LogStatus() {
             "in the interrupt (%u off the game's frame), surface update locked %u time(s), "
             "update register %08X",
             sp_game_gfx_cb, sp_irq_count, sp_irq_fixes, sp_irq_game_fixes, sp_lock_uses,
-            *(volatile DWORD*)(0x7FC80000 + 0x1851 * 4));
+            g_reg_update);
   util::Log("Overlay: scan-out register %08X, flip control %08X (cleared %u time(s)), pinned %s, "
             "%u re-point(s) outside the interrupt so far (%u this time, %u off the game's frame), "
             "game's last frame %08X",
-            *kScanoutAddress, *kFlipControl, sp_flipctl_clears, g_pin_active ? "yes" : "no",
+            g_reg_scanout, g_reg_flip, sp_flipctl_clears, g_pin_active ? "yes" : "no",
             g_pin_fixes_total + (g_pin_active ? g_pin_fixes : 0), g_pin_fixes,
             g_pin_game_fixes_total + (g_pin_active ? g_pin_game_fixes : 0), sp_pin_game);
 }

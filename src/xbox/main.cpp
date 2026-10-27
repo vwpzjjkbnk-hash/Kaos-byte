@@ -63,6 +63,7 @@ struct Settings {
   bool only_compatible;       // [Menu] OnlyCompatible: list only figures this game can use
   bool newest_only;           // [Menu] NewestOnly: list only each character's newest release
   bool pause_low_memory;      // [Menu] PauseGameWhenLowOnMemory
+  bool full_screen;           // [Menu] FullScreenMenu: 0 = always the console's pop-up menu
 };
 Settings g_set;
 
@@ -159,6 +160,7 @@ void LoadSettings() {
   g_set.only_compatible = g_config.GetBool("Menu", "OnlyCompatible", true);
   g_set.newest_only = g_config.GetBool("Menu", "NewestOnly", true);
   g_set.pause_low_memory = g_config.GetBool("Menu", "PauseGameWhenLowOnMemory", true);
+  g_set.full_screen = g_config.GetBool("Menu", "FullScreenMenu", true);
 
   g_extra_title_count = 0;
   const char* key;
@@ -257,6 +259,109 @@ bool RemoveFigure(int id, bool announce) {
 }
 
 sp::Lock g_flush_lock;  // keeps saves one at a time
+
+// What kind of figure: "Swap in" only replaces figures of the same kind (a trap swaps the trap, a
+// Skylander the Skylander(s), a vehicle the vehicle), and leaves the rest on the rift.
+enum FigureKind { kKindCharacter, kKindTop, kKindBottom, kKindTrap, kKindVehicle, kKindItem };
+
+FigureKind KindOf(int id) {
+  char series[40];
+  g_library.Series(id, series, sizeof(series));
+  if (!strcmp(series, "Trap") || !strcmp(series, "Trap Variant") || !strcmp(series, "Villain") ||
+      !strcmp(series, "Villain Variant")) {
+    return kKindTrap;
+  }
+  if (!strcmp(series, "Land Vehicle") || !strcmp(series, "Sea Vehicle") ||
+      !strcmp(series, "Sky Vehicle")) {
+    return kKindVehicle;
+  }
+  if (!strcmp(series, "Magic Item") || !strcmp(series, "Treasure Chest") ||
+      !strcmp(series, "Adventure Pack") || !strcmp(series, "Expansion Pack") ||
+      !strcmp(series, "Battle Arena") || !strcmp(series, "Promo Item")) {
+    return kKindItem;
+  }
+  if (!strcmp(series, "Swapper Top")) return kKindTop;
+  if (!strcmp(series, "Swapper Bottom")) return kKindBottom;
+  if (series[0] && strcmp(series, "Unreleased")) return kKindCharacter;
+  // Unreleased or not in the index: by the character id's range.
+  int toy = g_library.CharacterId(id);
+  if (toy <= 0) {
+    static sp::u8 dump[sp::kFigureSize];
+    if (g_library.Load(id, dump)) toy = elements::ToyId(dump);
+  }
+  if (toy >= 210 && toy <= 220) return kKindTrap;
+  if ((toy >= 200 && toy < 210) || (toy > 220 && toy < 400) || (toy >= 3300 && toy < 3400) ||
+      (toy >= 3500 && toy < 3600)) {
+    return kKindItem;
+  }
+  if (toy >= 3200 && toy < 3300) return kKindVehicle;
+  if (toy >= 1000 && toy < 2000) return kKindBottom;
+  if (toy >= 2000 && toy < 3000) return kKindTop;
+  return kKindCharacter;
+}
+
+// Does putting on a figure of kind `incoming` take a figure of kind `on` off? Skylanders replace
+// Skylanders, including both Swap Force halves; a swapper half replaces the same half (and a
+// whole Skylander), so you can swap just the top or just the bottom.
+bool SwapReplaces(FigureKind incoming, FigureKind on) {
+  switch (incoming) {
+    case kKindCharacter: return on == kKindCharacter || on == kKindTop || on == kKindBottom;
+    case kKindTop: return on == kKindTop || on == kKindCharacter;
+    case kKindBottom: return on == kKindBottom || on == kKindCharacter;
+    default: return on == incoming;
+  }
+}
+
+// "Swap in" the way it goes on a real portal: everything comes off, the game sees the empty
+// portal, and only then (a moment later) does the new figure go on. Removing and adding in the
+// same instant left Giants stuck on its loading screen (it sees both in one status report, all
+// the more when the menu had the game paused). The figure waits here until the game has been
+// told about the removals and has polled the portal kSwapGapReports more times, kSwapGapMs apart.
+struct PendingSwap {
+  int id;               // figure to put on, -1 = none
+  bool removed;         // something was taken off for it (else it goes straight on)
+  bool removal_seen;    // the game has had the status report saying the figures were removed
+  DWORD seen_tick;
+  sp::u32 seen_reports;
+  bool toast;           // announce it with a toast (menus without a screen of their own)
+};
+PendingSwap g_swap = {-1, false, false, 0, 0, false};
+
+void MenuChanged();  // the menu on screen shows the rift as it is now (defined with the menus)
+const sp::u32 kSwapGapReports = 30;
+const DWORD kSwapGapMs = 750;
+
+void CancelSwap() { g_swap.id = -1; }
+
+// Called often from the worker thread: puts the waiting figure on once it's time.
+void ServiceSwap() {
+  if (g_swap.id < 0) return;
+  bool now = false;
+  if (!g_swap.removed || !g_portal.Active()) {
+    now = true;  // nothing came off, or the game isn't using the portal: nothing to see in between
+  } else if (!g_swap.removal_seen) {
+    if (!g_portal.RemovalPending()) {
+      g_swap.removal_seen = true;
+      g_swap.seen_tick = GetTickCount();
+      g_swap.seen_reports = g_portal.StatusReports();
+    }
+  } else if (g_portal.StatusReports() - g_swap.seen_reports >= kSwapGapReports &&
+             GetTickCount() - g_swap.seen_tick >= kSwapGapMs) {
+    now = true;
+  }
+  if (!now) return;
+  const int id = g_swap.id;
+  g_swap.id = -1;
+  if (PlaceFigure(id, false) >= 0) {
+    if (g_swap.toast) {
+      Toast("Swapped in %s", g_library.Name(id));
+    } else {
+      util::Log("Swapped in %s", g_library.Name(id));
+    }
+  }
+  SavePortalState();
+  MenuChanged();
+}
 
 void FlushWrites() {
   sp::Guard guard(g_flush_lock);
@@ -358,6 +463,13 @@ int PortalNames(char* text, int cap) {
     }
     ++count;
   }
+  // A figure being swapped in counts as on (it goes on in a moment).
+  if (g_swap.id >= 0 && g_portal.FindTag(g_swap.id) < 0) {
+    if (len < cap - 8) {
+      len += sprintf_s(text + len, cap - len, "%s%s", count ? ", " : "", g_library.Name(g_swap.id));
+    }
+    ++count;
+  }
   return count;
 }
 
@@ -439,9 +551,19 @@ void GetView(int pos, View* out) {
     out->game = g_library.Game(out->id);
     g_library.Series(out->id, out->series, (int)sizeof(out->series));
     GroupName(g_library.Rel(out->id), out->group, (int)sizeof(out->group));
+    // The element section (unless the folder is already named after it, like a trap's).
+    const char* el = elements::Name((elements::Element)out->element);
+    if (el[0]) {
+      const char* last = strrchr(out->group, '/');
+      last = last ? last + 2 : out->group;
+      if (_stricmp(last, el)) {
+        const int len = (int)strlen(out->group);
+        sprintf_s(out->group + len, sizeof(out->group) - len, " / %s", el);
+      }
+    }
     if (!g_library.ImagePath(out->id, out->image, (int)sizeof(out->image))) out->image[0] = 0;
   }
-  out->on_portal = out->id >= 0 && g_portal.FindTag(out->id) >= 0;
+  out->on_portal = out->id >= 0 && (g_portal.FindTag(out->id) >= 0 || out->id == g_swap.id);
   out->portal_count = PortalNames(out->portal_names, (int)sizeof(out->portal_names));
 }
 
@@ -450,21 +572,45 @@ void Do(Action action, bool toast) {
   bool changed = false;
   switch (action) {
     case kAdd:
+      if (id >= 0 && id == g_swap.id) break;  // already going on
       changed = PlaceFigure(id, toast) >= 0;
       break;
     case kRemove:
+      if (id >= 0 && id == g_swap.id) {  // was about to be swapped in: not any more
+        CancelSwap();
+        util::Log("Swap of %s cancelled", g_library.Name(id));
+        changed = true;
+        break;
+      }
       changed = RemoveFigure(id, toast);
       break;
-    case kSwap:  // everything off, selected figure on
+    case kSwap: {  // figures of the same kind off now; the selected one on once the game saw that
+      if (id < 0 || g_portal.FindTag(id) >= 0) break;  // already on
       FlushWrites();
-      g_portal.RemoveAll();
-      if (PlaceFigure(id, false) >= 0) {
-        if (toast) Toast("Swapped in %s", g_library.Name(id));
-        else util::Log("Swapped in %s", g_library.Name(id));
+      const FigureKind kind = KindOf(id);
+      int removed = 0;
+      for (int slot = 0; slot < sp::kMaxSlots; ++slot) {
+        const int on = g_portal.Tag(slot);
+        if (on >= 0 && SwapReplaces(kind, KindOf(on))) {
+          util::Log("Swap: taking %s off", g_library.Name(on));
+          g_portal.Remove(slot);
+          ++removed;
+        }
       }
+      g_swap.id = id;
+      g_swap.removed = removed > 0;
+      g_swap.removal_seen = false;
+      g_swap.toast = toast;
+      if (removed) {
+        util::Log("Swapping in %s: it goes on once the game has seen the %d figure(s) come off",
+                  g_library.Name(id), removed);
+      }
+      ServiceSwap();  // straight away if nothing came off or the game isn't using the portal
       changed = true;
       break;
+    }
     case kClear:
+      CancelSwap();
       g_portal.RemoveAll();
       if (toast) Toast("All figures taken off the rift");
       else util::Log("All figures taken off the rift");
@@ -564,7 +710,10 @@ void PollDrawn(DWORD now) {
       const bool ok = XInputGetState(i, &st) == ERROR_SUCCESS;
       const bool held = ok && ModifierHeld(st.Gamepad);
       if (held && !g_drawn.mod_was_held[i] && !g_drawn.wait_release && g_drawn.pad < 0) {
-        if (!overlay::Ready()) {
+        if (!g_set.full_screen) {
+          util::Log("Menu: pop-up menu ([Menu] FullScreenMenu = 0), pad %d", i);
+          popmenu::Open(i);
+        } else if (!overlay::Ready()) {
           Toast("The Static Rift: the menu isn't ready yet (no game frames seen)");
         } else {
           DrawnRescanIfStale(now);
@@ -659,6 +808,12 @@ void PollDrawn(DWORD now) {
 }
 
 #endif  // SKYPORTAL_MENU_DRAWN
+
+void MenuChanged() {
+#if defined(SKYPORTAL_MENU_DRAWN)
+  if (g_drawn.pad >= 0 && overlay::IsOpen()) DrawnRefresh();
+#endif
+}
 
 void PollController(bool title_hooked) {
   const DWORD now = GetTickCount();
@@ -755,7 +910,8 @@ const DWORD kFlushIntervalMs = 250;
 #else
 const bool kSystemDll = true;   // system DLL loaded at boot
 const int kRootWaitSeconds = 60;  // USB sticks can take a while to show up after boot
-const DWORD kFlushIntervalMs = 1000;
+// Saved as quickly as the Peer Pressure build: the game can exit any moment after a write.
+const DWORD kFlushIntervalMs = 250;
 #endif
 
 #if defined(SKYPORTAL_SIDELOAD)
@@ -799,10 +955,14 @@ void MountAndFindRoot() {
   CreateDirectory(g_root, NULL);
 }
 
+void ScanForTitle(DWORD title);
+
 // Finds the SkyPortal folder, opens the log, reads settings and the figure library, and puts the
 // remembered/startup figures on the portal. Returns false if the plugin is disabled.
 bool Startup() {
+  util::Trace("looking for the data folder");
   MountAndFindRoot();
+  util::Trace("data folder %s", g_root);
   char path[MAX_PATH];
   sprintf_s(path, sizeof(path), "%s\\Figures", g_root);
   CreateDirectory(path, NULL);
@@ -821,25 +981,46 @@ bool Startup() {
     util::Log("Game: execution ID not readable (title %08X)", XamGetCurrentTitleId());
   }
 #else
-  util::Log(SKYPORTAL_PRODUCT " (The Static Rift, Dashlaunch plugin) - root %s", g_root);
+  util::Log(SKYPORTAL_PRODUCT " (The Static Rift, Dashlaunch plugin, %s) - root %s", kMenuStyle,
+            g_root);
 #endif
 
   LoadSettings();
   g_library.SetRoot(g_root);
   util::Log(g_library.LoadIndex() ? "Figure index loaded (UI\\figures.idx)"
                                   : "No UI\\figures.idx: names and elements come from the files");
-  // The running game (1 = Spyro's Adventure ... 6 = Imaginators): figures only work in the game
-  // they came out with and later ones, so the menu lists just those.
-  int game = 0;
 #if defined(SKYPORTAL_SIDELOAD)
-  const DWORD title = g_have_exec_id ? g_exec_id.title_id : XamGetCurrentTitleId();
+  ScanForTitle(g_have_exec_id ? g_exec_id.title_id : XamGetCurrentTitleId());
+  if (!g_set.enabled) {
+    util::Log("Disabled in staticrift.ini ([General] Enabled=0)");
+    return false;
+  }
+  RestoreStartupFigures();
+  util::Log("%d figure(s) on the rift at start", g_portal.Count());
+  return true;
 #else
-  const DWORD title = XamGetCurrentTitleId();
+  // Dashlaunch: the boot is done; each Skylanders game gets its scan when it starts.
+  if (!g_set.enabled) {
+    util::Log("Disabled in staticrift.ini ([General] Enabled=0)");
+    return false;
+  }
+  return true;
 #endif
+}
+
+// Lists the figures the game `title` can use: figures only work in the game they came out with
+// (1 = Spyro's Adventure ... 6 = Imaginators) and later ones, so the menu lists just those.
+int GameNumber(DWORD title) {
+  int game = 0;
   for (int i = 0; i < (int)(sizeof(kSkylandersTitles) / sizeof(kSkylandersTitles[0])); ++i) {
     if (kSkylandersTitles[i] == title) game = i + 1;
   }
-  if (g_set.only_compatible) g_library.SetGameFilter(game);
+  return game;
+}
+
+void ScanForTitle(DWORD title) {
+  const int game = GameNumber(title);
+  g_library.SetGameFilter(g_set.only_compatible ? game : 0);
   g_library.SetNewestOnly(g_set.newest_only);
   const int figures = g_library.Scan();
   g_menu.last_scan = GetTickCount();
@@ -851,14 +1032,6 @@ bool Startup() {
   if (g_library.UnreadableDirs() > 0) {
     util::Log("%d folder(s) in Figures are empty or couldn't be opened", g_library.UnreadableDirs());
   }
-
-  if (!g_set.enabled) {
-    util::Log("Disabled in staticrift.ini ([General] Enabled=0)");
-    return false;
-  }
-  RestoreStartupFigures();
-  util::Log("%d figure(s) on the rift at start", g_portal.Count());
-  return true;
 }
 
 #if defined(SKYPORTAL_SIDELOAD)
@@ -907,6 +1080,7 @@ DWORD WINAPI SideloadThread(LPVOID) {
   while (!g_stop) {
     const DWORD now = GetTickCount();
     PollController(true);
+    ServiceSwap();
     if (now - last_flush >= kFlushIntervalMs) {
       last_flush = now;
       FlushWrites();
@@ -980,59 +1154,151 @@ BOOL APIENTRY DllMain(HANDLE module, DWORD reason, LPVOID reserved) {
 #else  // Dashlaunch plugin
 
 // ---- Dashlaunch: system DLL watching for Skylanders titles ----
+//
+// Loaded once at boot (RGH / JTAG, or BadUpdate + XeUnshackle) and never unloaded. A system
+// thread checks every 10 ms which program is running. When a Skylanders game starts, its imports
+// (the portal calls, the controller, VdSwap and the graphics interrupt callback) are pointed at
+// the plugin straight away, while the game is still loading: the same hooks Peer Pressure's
+// build installs before the game's first instruction. Then the figures this game can use are
+// scanned, the remembered figures go back on the rift, and the menu works as in the Peer Pressure
+// build. When the game exits, unsaved progress is saved and everything is reset for the next one.
+
+// Resets the controller menu for the next game (it may have exited with the menu up).
+void ResetMenuState() {
+  g_menu.active_pad = -1;
+  g_menu.toast_at = 0;
+  g_menu.tap = false;
+#if defined(SKYPORTAL_MENU_DRAWN)
+  Drawn fresh = {-1, 0, false, false, {false, false, false, false}, false, -1};
+  g_drawn = fresh;
+#endif
+  hooks::SetInputBlocked(false);
+}
+
+// A Skylanders game has just been hooked: its figures, the remembered rift, the menu.
+void StartGame(DWORD title, PLDR_DATA_TABLE_ENTRY module, int patched) {
+  const int game = GameNumber(title);
+  util::Log("---- %s (title %08X): hooked %d import(s) while it loads ----",
+            game ? menu::GameName(game) : "Game", title, patched);
+  LoadSettings();  // staticrift.ini changes apply at the next game, no restart needed
+  hooks::SetPassthrough(!g_set.enabled);
+  ScanForTitle(title);
+  g_menu.pos = 0;
+  g_menu.last_scan = GetTickCount();
+  RestoreStartupFigures();
+  util::Log("%d figure(s) on the rift at start", g_portal.Count());
+  hooks::LogTitleImports(module);
+#if defined(SKYPORTAL_MENU_DRAWN)
+  overlay::SetAllowPause(g_set.pause_low_memory);
+#endif
+  Toast("The Static Rift is open - %d on the rift, %d figures", g_portal.Count(),
+        g_library.BrowseCount());
+}
 
 DWORD WINAPI WorkerThread(LPVOID) {
-  if (!Startup()) return 0;
-  hooks::Init(&g_bridge);
+  util::Trace("worker thread running (system thread)");
+  const bool started = Startup();
+  util::Trace("startup %s; log at %s\\staticrift.log", started ? "done" : "says disabled", g_root);
+  if (!started) {
+    hooks::SetPassthrough(true);
+    return 0;
+  }
   hooks::LogExports();
+#if defined(SKYPORTAL_MENU_DRAWN)
+  overlay::Start(g_root, g_set.overlay_swap_rb);  // idle until a game presents frames
+#endif
 
-  DWORD last_title = 0;
+  DWORD last_title = 0xFFFFFFFF;
   PLDR_DATA_TABLE_ENTRY last_module = NULL;
   bool hooked = false;
-  DWORD last_title_check = 0;
+  DWORD hooked_title = 0;
+  DWORD last_repatch = 0;
   DWORD last_flush = 0;
+  DWORD last_report = 0;
+  DWORD reported_reads = 0, reported_writes = 0;
+  int reports = 0;
 
   while (!g_stop) {
     const DWORD now = GetTickCount();
+    const DWORD title = XamGetCurrentTitleId();
+    PLDR_DATA_TABLE_ENTRY module = util::TitleModule();
 
-    if (now - last_title_check >= 250) {
-      last_title_check = now;
-      const DWORD title = XamGetCurrentTitleId();
-      PLDR_DATA_TABLE_ENTRY module = util::TitleModule();
-      if (title != last_title || module != last_module) {
-        if (hooked) {
-          FlushWrites();
-          util::Log("Title %08X ended (reads=%u writes=%u)", last_title, hooks::ReadCalls(),
-                    hooks::WriteCalls());
-        }
-        last_title = title;
-        last_module = module;
-        hooked = false;
-        g_portal.ResetSession();
-        g_bridge.Reset();
-        util::Log("Title now %08X%s", title, TitleAllowed(title) ? " (Skylanders)" : "");
+    if (title != last_title || module != last_module) {
+      if (hooked) {
+        // The game's threads (which call the portal hooks and log) are gone: first make their
+        // locks free again, in case one ended while holding one.
+        g_portal.RecoverLock();
+        g_bridge.RecoverLock();
+        util::LogRecoverLock();
+        FlushWrites();
+        SavePortalState();
+#if defined(SKYPORTAL_MENU_DRAWN)
+        if (overlay::TitleEnded()) util::Log("The game exited with the menu open");
+        popmenu::Poll();
+#endif
+        util::Log("Title %08X ended (%u read(s), %u write(s) by the game)", hooked_title,
+                  hooks::ReadCalls(), hooks::WriteCalls());
       }
-      if (TitleAllowed(title) && module) {
-        const int patched = hooks::PatchTitle(module, g_set.hide_combo);
-        if (patched > 0) {
-          util::Log("Hooked %d import(s) in title %08X", patched, title);
-          if (!hooked) {
-            Toast("The Static Rift is open - %d on the rift, %d figures", g_portal.Count(),
-                  g_library.BrowseCount());
-          }
-          hooked = true;
-        }
+      ResetMenuState();
+      CancelSwap();
+      g_portal.ResetSession();
+      g_bridge.Reset();
+      hooked = false;
+      last_title = title;
+      last_module = module;
+      if (TitleAllowed(title)) util::Log("Title now %08X (Skylanders)", title);
+    }
+
+    if (!hooked && TitleAllowed(title) && module) {
+      // As early as possible: before the game sets up Direct3D and the portal.
+      int patched = hooks::PatchTitle(module, g_set.hide_combo);
+#if defined(SKYPORTAL_MENU_DRAWN)
+      patched += overlay::PatchTitle(module);
+#endif
+      if (patched > 0) {
+        hooked = true;
+        hooked_title = title;
+        last_repatch = now;
+        reports = 0;
+        last_report = now;
+        reported_reads = reported_writes = 0;
+        StartGame(title, module, patched);
       }
+    } else if (hooked && now - last_repatch >= 250) {
+      // Idempotent: catches anything the game binds later.
+      last_repatch = now;
+      int more = hooks::PatchTitle(module, g_set.hide_combo);
+#if defined(SKYPORTAL_MENU_DRAWN)
+      more += overlay::PatchTitle(module);
+#endif
+      if (more > 0) util::Log("Hooked %d more import(s)", more);
     }
 
     PollController(hooked);
+    ServiceSwap();
 
     if (now - last_flush >= kFlushIntervalMs) {
       last_flush = now;
       FlushWrites();
     }
-
-    Sleep(20);
+    if (hooked && now - last_report >= (reports < 3 ? 5000u : 60000u) && reports < 40) {
+      last_report = now;
+      const DWORD reads = hooks::ReadCalls(), writes = hooks::WriteCalls();
+      if (reports == 0 || reads != reported_reads || writes != reported_writes) {
+        ++reports;
+        util::Log("Game portal use: %u read(s), %u write(s); %d figure(s) on the rift", reads,
+                  writes, g_portal.Count());
+        hooks::LogLookups();
+#if defined(SKYPORTAL_MENU_DRAWN)
+        overlay::LogStatus();
+#endif
+        reported_reads = reads;
+        reported_writes = writes;
+      }
+    }
+    // Quick checks until a game is hooked (to catch it while it loads); a game's menu polls at
+    // the same 20 ms as the Peer Pressure build.
+    Sleep(hooked ? 20 : 10);
   }
   FlushWrites();
   return 0;
@@ -1044,18 +1310,19 @@ BOOL APIENTRY DllMain(HANDLE module, DWORD reason, LPVOID reserved) {
   (void)module;
   (void)reserved;
   if (reason == DLL_PROCESS_ATTACH) {
-    HANDLE thread = NULL;
-    DWORD thread_id = 0;
-    ExCreateThread(&thread, 0x10000, &thread_id, (PVOID)XapiThreadStartup,
-                   (LPTHREAD_START_ROUTINE)WorkerThread, NULL,
-                   EX_CREATE_FLAG_SYSTEM | EX_CREATE_FLAG_SUSPENDED);
-    if (thread) {
-      XSetThreadProcessor(thread, 4);
-      ResumeThread(thread);
-      CloseHandle(thread);
-    }
+    util::Trace(SKYPORTAL_PRODUCT ": Dashlaunch plugin attach (module %p), running program %08X",
+                module, XamGetCurrentTitleId());
+    hooks::Init(&g_bridge);
+#if defined(SKYPORTAL_MENU_DRAWN)
+    overlay::Init();
+#endif
+    const bool started = util::StartThread(WorkerThread, 0x10000);  // a system thread
+    util::Trace("worker thread %s", started ? "created" : "NOT created");
   } else if (reason == DLL_PROCESS_DETACH) {
     g_stop = true;
+#if defined(SKYPORTAL_MENU_DRAWN)
+    overlay::Stop();
+#endif
   }
   return TRUE;
 }

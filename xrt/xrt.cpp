@@ -206,7 +206,15 @@ extern "C" void xrt_thread_startup(LPTHREAD_START_ROUTINE start, LPVOID context)
 
 // ---- Heap: a fixed arena for the few allocations the plugin makes at startup ----
 
-enum { kArenaBytes = 128 * 1024 };  // the figure library needs ~117 KB
+#if defined(SKYPORTAL_SIDELOAD)
+enum { kArenaBytes = 128 * 1024 };  // small allocations (big startup tables: xrt_big_alloc)
+#else
+// Dashlaunch system DLL: the figure library (~0.9 MB of tables, made once at boot) lives in the
+// DLL's own image, which stays loaded until the console is turned off. Memory from the kernel's
+// allocators, asked for at boot while the dashboard runs, might belong to whichever program is
+// running then; the image is certain to stay ours.
+enum { kArenaBytes = 1280 * 1024 };
+#endif
 unsigned long long g_arena[kArenaBytes / 8];
 size_t g_arena_used = 0;
 
@@ -256,7 +264,9 @@ namespace {
 
 void* ArenaAlloc(size_t bytes) {
   bytes = (bytes + 15) & ~(size_t)15;
+#if defined(SKYPORTAL_SIDELOAD)
   if (bytes > 16 * 1024) return xrt_big_alloc(bytes, 0);  // never freed: startup tables
+#endif
   if (g_arena_used + bytes > sizeof(g_arena)) return xrt_big_alloc(bytes, 0);
   void* p = (unsigned char*)g_arena + g_arena_used;
   g_arena_used += bytes;
@@ -453,7 +463,12 @@ HANDLE CreateThread(LPSECURITY_ATTRIBUTES sa, size_t stack, LPTHREAD_START_ROUTI
   (void)sa;
   HANDLE h = 0;
   DWORD id = 0;
-  const DWORD ex_flags = (flags & CREATE_SUSPENDED) ? EX_CREATE_FLAG_SUSPENDED : 0;
+  DWORD ex_flags = (flags & CREATE_SUSPENDED) ? EX_CREATE_FLAG_SUSPENDED : 0;
+#if !defined(SKYPORTAL_SIDELOAD)
+  // Dashlaunch build: every thread is a system thread, so it keeps running (and what it
+  // allocates stays valid) when a game exits and the next one starts.
+  ex_flags |= EX_CREATE_FLAG_SYSTEM;
+#endif
   if (!NtOk((NTSTATUS)ExCreateThread(&h, (DWORD)stack, &id, (PVOID)xrt_thread_startup_guest,
                                      start, param, ex_flags))) {
     return 0;

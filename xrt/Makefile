@@ -4,6 +4,8 @@
 #   make -C xrt                  -> xrt/build/classic/Kaos-Byte2.0v-classic.xex (menu: notifications)
 #   make -C xrt VARIANT=pop      -> xrt/build/pop/Kaos-Byte2.0v-pop.xex (console pop-up menu)
 #   make -C xrt VARIANT=drawn    -> xrt/build/drawn/Kaos-Byte2.0v.xex (menu drawn on screen)
+#   make -C xrt VARIANT=rgh      -> xrt/build/rgh/Kaos-Byte2.0v-RGH.xex (Dashlaunch plugin for
+#                                   RGH / JTAG / BadUpdate + XeUnshackle; drawn menu)
 #   make -C xrt all-variants
 #   make -C xrt BASE=0x8C000000   (if the default base clashes with a game)
 
@@ -11,10 +13,28 @@ CLANG   ?= clang
 LLD     ?= ld.lld
 PYTHON  ?= python3
 OBJDUMP ?= llvm-objdump
-BASE    ?= 0x8A000000
-
 VARIANT ?= classic
-ifeq ($(VARIANT),pop)
+# The Peer Pressure title DLL loads next to the game (title images start at 0x82000000); the
+# Dashlaunch system DLL in the system plugins' range (another plugin at the same address makes
+# Dashlaunch skip one of them: then build with another 1 MB-aligned BASE).
+ifeq ($(VARIANT),rgh)
+  BASE ?= 0x91C80000
+else
+  BASE ?= 0x8A000000
+endif
+# Peer Pressure build: a title DLL, devkit-encrypted and signed like every module Peer Pressure
+# loads. Dashlaunch build: a system DLL, plain (RGH / XeUnshackle kernels load unsigned code).
+LOAD_DEFS := -DSKYPORTAL_SIDELOAD
+XEX_FLAGS := --dll --encrypt-devkit --sign-devkit
+SIGN_CHECK = $(PYTHON) xexsign.py $@
+
+ifeq ($(VARIANT),rgh)
+  MENU_DEFS := -DSKYPORTAL_MENU_DRAWN
+  NAME := Kaos-Byte2.0v-RGH
+  LOAD_DEFS :=
+  XEX_FLAGS := --dll --sysdll --page-4k
+  SIGN_CHECK = @true
+else ifeq ($(VARIANT),pop)
   MENU_DEFS := -DSKYPORTAL_MENU_POP
   NAME := Kaos-Byte2.0v-pop
 else ifeq ($(VARIANT),drawn)
@@ -36,7 +56,7 @@ CXXFLAGS := $(TARGET_FLAGS) -std=c++11 -O2 -ffreestanding -fno-builtin -nostdlib
   -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-stack-protector -fno-pic \
   -fshort-wchar -fno-optimize-sibling-calls -ffunction-sections -fdata-sections \
   -Wall -Wno-unused-parameter -Wno-unused-function -Wno-unused-private-field \
-  -D_XBOX -DNDEBUG -DSKYPORTAL_SIDELOAD -DSKYPORTAL_XRT $(MENU_DEFS) \
+  -D_XBOX -DNDEBUG $(LOAD_DEFS) -DSKYPORTAL_XRT $(MENU_DEFS) \
   -Iinclude -I$(SRC)/core -I$(SRC)/xbox
 ASFLAGS := $(TARGET_FLAGS)
 
@@ -56,6 +76,7 @@ all-variants:
 	$(MAKE) VARIANT=classic
 	$(MAKE) VARIANT=pop
 	$(MAKE) VARIANT=drawn
+	$(MAKE) VARIANT=rgh
 
 # Headers are listed wholesale: a header change rebuilds everything (the build takes seconds).
 HEADERS := $(wildcard $(SRC)/xbox/*.h $(SRC)/core/*.h include/*.h)
@@ -89,8 +110,8 @@ $(BUILD)/$(NAME).elf: $(OBJS) $(BUILD)/dll.ld
 	  -o $@ $(OBJS)
 
 $(BUILD)/$(NAME).xex: $(BUILD)/$(NAME).elf elf2xex.py xexsign.py
-	$(PYTHON) elf2xex.py --dll --base $(BASE) --pe-name $(NAME).exe --encrypt-devkit --sign-devkit $< $@
-	$(PYTHON) xexsign.py $@
+	$(PYTHON) elf2xex.py $(XEX_FLAGS) --base $(BASE) --pe-name $(NAME).exe $< $@
+	$(SIGN_CHECK)
 
 disasm: $(BUILD)/$(NAME).elf
 	$(OBJDUMP) -d --no-show-raw-insn $< > $(BUILD)/$(NAME).dis

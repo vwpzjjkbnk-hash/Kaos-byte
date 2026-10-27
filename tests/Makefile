@@ -32,7 +32,7 @@ test_xrt: test_xrt.cpp ../xrt/xrt_libc.cpp ../xrt/xrt_printf.cpp
 # Checked twice: the Dashlaunch plugin and the Peer Pressure sideload DLL (-DSKYPORTAL_SIDELOAD).
 syntax:
 	@for flavour in "" "-DSKYPORTAL_SIDELOAD" "-DSKYPORTAL_SIDELOAD -DSKYPORTAL_MENU_POP" \
-	    "-DSKYPORTAL_SIDELOAD -DSKYPORTAL_MENU_DRAWN"; do \
+	    "-DSKYPORTAL_SIDELOAD -DSKYPORTAL_MENU_DRAWN" "-DSKYPORTAL_MENU_DRAWN"; do \
 	  for f in ../src/xbox/*.cpp ../src/core/portal_core.cpp; do \
 	    echo "  syntax $$f $$flavour"; \
 	    $(CLANGXX) --target=powerpc-unknown-none -std=c++98 -nostdlibinc -fsyntax-only -Wall -Wextra \
@@ -56,6 +56,8 @@ emu:
 	  ../xrt/build/pop/Kaos-Byte2.0v-pop.xex ../xrt/build/pop/Kaos-Byte2.0v-pop.elf pop
 	PYTHONPATH=$(UNICORN_PY) LIBUNICORN_PATH=$(UNICORN_LIB) python3 emu/run_dll.py \
 	  ../xrt/build/drawn/Kaos-Byte2.0v.xex ../xrt/build/drawn/Kaos-Byte2.0v.elf drawn
+	PYTHONPATH=$(UNICORN_PY) LIBUNICORN_PATH=$(UNICORN_LIB) python3 emu/run_dll.py \
+	  ../xrt/build/rgh/Kaos-Byte2.0v-RGH.xex ../xrt/build/rgh/Kaos-Byte2.0v-RGH.elf rgh
 
 # The skydrawn menu rendered on the PC (same code as the console) into PPM previews.
 # ASSETS = the SkyPortal folder tools/mkassets.py wrote (UI\ and Images\).

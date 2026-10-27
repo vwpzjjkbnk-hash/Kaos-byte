@@ -25,6 +25,11 @@ IMAGE_BASE = 0x82000000
 PE_HEADER_BYTES = 0x1000
 # Image pages are 64 KB unless the image asks for 4 KB (xenia:src/xenia/kernel/util/xex2_info.h:76).
 PAGE_BYTES = 0x10000
+# The console's memory map: images at 0x80000000-0x8FFFFFFF use 64 KB pages, images at
+# 0x90000000-0x9FFFFFFF (system DLLs such as Dashlaunch plugins) 4 KB pages, and say so with this
+# image flag, as every plugin there does (xbdm.xex: 0x30000006, JRPC2.xex: 0x10000000).
+IMAGE_FLAG_PAGE_SIZE_4KB = 0x10000000
+IMAGE_FLAGS = 0
 
 # xenia:src/xenia/kernel/util/xex2_info.h:55-59
 SECTION_CODE = 1
@@ -345,7 +350,9 @@ def build_xex(image, runs, entry, libraries, args):
         inline[HEADER_DEFAULT_STACK_SIZE] = args.stack_size
         inline[HEADER_SYSTEM_FLAGS] = SYSTEM_NO_FORCED_REBOOT | SYSTEM_HANDLE_GAMEPAD_DISCONNECT
         blocks[HEADER_TLS_INFO] = struct.pack(">IIII", TLS_SLOTS, 0, 0, 0)
-    module_flags = MODULE_TITLE | (MODULE_DLL if args.dll else 0)
+    # A system DLL (--sysdll: what Dashlaunch loads at boot as a plugin) is a DLL module without
+    # the TITLE flag, as ImageXex's <sysdll/> writes it: it lives outside any game's process.
+    module_flags = MODULE_DLL if args.sysdll else MODULE_TITLE | (MODULE_DLL if args.dll else 0)
 
     header_count = len(inline) + len(blocks) + 1
     security_offset = align(0x18 + 8 * header_count, 8)
@@ -359,7 +366,7 @@ def build_xex(image, runs, entry, libraries, args):
 
     security = bytearray(SECURITY_INFO_BYTES)
     struct.pack_into(">II", security, 0, security_bytes, len(image))
-    struct.pack_into(">III20sI20s", security, 0x108, IMAGE_INFO_BYTES, 0, IMAGE_BASE, image_digest, len(libraries),
+    struct.pack_into(">III20sI20s", security, 0x108, IMAGE_INFO_BYTES, IMAGE_FLAGS, IMAGE_BASE, image_digest, len(libraries),
         import_digest)
     struct.pack_into(">III", security, 0x178, REGION_ALL, MEDIA_ALL, len(descriptors) // PAGE_DESCRIPTOR_BYTES)
 
@@ -403,7 +410,7 @@ def patch_import_records(image, libraries):
 
 
 def main():
-    global IMAGE_BASE
+    global IMAGE_BASE, PAGE_BYTES, IMAGE_FLAGS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("elf", type=Path)
     parser.add_argument("xex", type=Path)
@@ -412,6 +419,10 @@ def main():
     parser.add_argument("--base", type=lambda text: int(text, 0), default=IMAGE_BASE,
         help="image base address (must match the linker script)")
     parser.add_argument("--dll", action="store_true", help="write a title DLL instead of a title")
+    parser.add_argument("--sysdll", action="store_true",
+        help="with --dll: write a system DLL (a Dashlaunch plugin) instead of a title DLL")
+    parser.add_argument("--page-4k", action="store_true",
+        help="4 KB image pages (required for a base at 0x90000000-0x9FFFFFFF, where system DLLs load)")
     parser.add_argument("--pe-name", default="", help="original PE name header (as imagexex writes)")
     parser.add_argument("--encrypt-devkit", action="store_true", help="encrypt the image with the devkit key")
     parser.add_argument("--zero-fill-bss", action="store_true",
@@ -421,7 +432,13 @@ def main():
     args = parser.parse_args()
     if args.encrypt_devkit and not args.sign_devkit:
         fail("--encrypt-devkit needs --sign-devkit: an unsigned file is retail and gets the retail key")
-    if args.base % PAGE_BYTES:
+    in_4k_region = 0x90000000 <= args.base < 0xA0000000
+    if in_4k_region != args.page_4k:
+        fail("a base at 0x90000000-0x9FFFFFFF needs --page-4k, and --page-4k needs a base there")
+    if args.page_4k:
+        PAGE_BYTES = 0x1000
+        IMAGE_FLAGS = IMAGE_FLAG_PAGE_SIZE_4KB
+    if args.base % 0x10000:
         fail("--base must be 64 KB aligned")
     IMAGE_BASE = args.base
 

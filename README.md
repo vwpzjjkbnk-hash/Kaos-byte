@@ -1,7 +1,7 @@
 # Project Kaos-Byte2.0v: The Static Rift
 
 A virtual **Portal of Power** for the six Xbox 360 Skylanders games, for consoles with
-**Peer Pressure**. No portal hardware: your figures are files on the hard drive, and you put them
+**Peer Pressure**, or **BadUpdate + XeUnshackle / RGH / JTAG** (Dashlaunch). No portal hardware: your figures are files on the hard drive, and you put them
 on and take them off with a full-screen menu (tap **LB + RB**) while you play. Progress the game
 saves goes back into the figure files.
 
@@ -12,8 +12,12 @@ saves goes back into the figure files.
   vehicles, creation crystals, magic items, chests and unreleased figures
 - Pauses the game behind the menu in games that leave too little memory for it
 
-**Install:** see **[INSTALL.md](INSTALL.md)**. Unzip the release and drag its two folders onto
-`Hdd1` with FileZilla.
+**Install:**
+- **Peer Pressure:** see **[INSTALL.md](INSTALL.md)**. Unzip the release and drag its two
+  folders onto `Hdd1` with FileZilla.
+- **BadUpdate / RGH / JTAG (Dashlaunch):** see **[INSTALL-RGH.md](INSTALL-RGH.md)**. Drag
+  two folders over, add one line to `launch.ini`, restart. Tested on BadUpdate + XeUnshackle;
+  RGH and JTAG run the same Dashlaunch and should work the same way.
 
 **Credits:** see **[CREDITS.md](CREDITS.md)**. This project builds on many people's work.
 
@@ -21,7 +25,8 @@ saves goes back into the figure files.
 
 The plugin builds with clang + ld.lld + Python, no Xbox 360 SDK needed:
 
-    make -C xrt VARIANT=drawn        # -> xrt/build/drawn/Kaos-Byte2.0v.xex
+    make -C xrt VARIANT=drawn        # -> xrt/build/drawn/Kaos-Byte2.0v.xex (Peer Pressure)
+    make -C xrt VARIANT=rgh          # -> xrt/build/rgh/Kaos-Byte2.0v-RGH.xex (Dashlaunch)
     make -C tests run                # unit tests
     make -C tests emu UNICORN_PY=... UNICORN_LIB=...   # runs the plugin on an emulated CPU
 

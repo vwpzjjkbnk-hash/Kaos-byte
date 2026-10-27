@@ -76,10 +76,15 @@ class VirtualPortal {
   // A new game session: the portal goes back to inactive and queued replies are dropped. Figures
   // stay on the portal and are announced again when the game activates it.
   void ResetSession();
+  void RecoverLock() { lock_.Reinit(); }  // see sp::Lock::Reinit
 
   // Diagnostics.
   u32 CommandsSeen() const;
   bool Active() const;
+  // A removal the game hasn't been told about yet (a status report still has to say so).
+  bool RemovalPending() const;
+  // Status reports handed to the game so far (counts the game's polls while the portal is active).
+  u32 StatusReports() const;
 
  private:
   enum SlotState { kEmpty = 0, kReady = 1, kRemoving = 2, kAdded = 3 };
@@ -113,6 +118,7 @@ class VirtualPortal {
   bool speaker_;
   u8 counter_;
   u32 commands_seen_;
+  u32 status_reports_;
 };
 
 // Implements the game's side of XamInputNonControllerGetRaw/SetRaw on top of a VirtualPortal:
@@ -126,6 +132,7 @@ class XamBridge {
   u32 Read(u8* buffer, u32 capacity, u32* bytes_read, u16* state);
   u32 Write(const u8* buffer, u32 length);
   void Reset();
+  void RecoverLock() { lock_.Reinit(); }  // see sp::Lock::Reinit
 
  private:
   VirtualPortal* portal_;

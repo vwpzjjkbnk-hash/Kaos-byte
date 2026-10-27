@@ -12,6 +12,9 @@ class Lock {
   ~Lock() { DeleteCriticalSection(&cs_); }
   void Enter() { EnterCriticalSection(&cs_); }
   void Leave() { LeaveCriticalSection(&cs_); }
+  // Makes the lock free again. Only when every thread that could hold it is gone (Dashlaunch
+  // build: a game's threads end abruptly with the game, possibly while holding it).
+  void Reinit() { InitializeCriticalSection(&cs_); }
  private:
   CRITICAL_SECTION cs_;
   Lock(const Lock&);
@@ -33,6 +36,7 @@ class Lock {
   ~Lock() { pthread_mutex_destroy(&m_); }
   void Enter() { pthread_mutex_lock(&m_); }
   void Leave() { pthread_mutex_unlock(&m_); }
+  void Reinit() {}
  private:
   pthread_mutex_t m_;
   Lock(const Lock&);

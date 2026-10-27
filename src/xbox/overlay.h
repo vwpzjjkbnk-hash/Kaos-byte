@@ -33,6 +33,11 @@ bool IsOpen();
 void SetAllowPause(bool allow);                    // open or opening (input goes to the menu)
 bool Ready();                     // the game has presented frames (the menu can open)
 
+// Dashlaunch build: the game this was drawing over has exited (and its threads with it, the menu's
+// drawing and scan-out threads among them); forgets everything of that game's, ready for the
+// next. Returns true if the menu was up.
+bool TitleEnded();
+
 void Stop();
 void LogStatus();
 

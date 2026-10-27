@@ -13,7 +13,7 @@
 
 // Plugin-wide constants.
 #define SKYPORTAL_VERSION_STRING "2.0"
-#define SKYPORTAL_PRODUCT "Project Kaos-Byte2.0v (build 4)"
+#define SKYPORTAL_PRODUCT "Project Kaos-Byte2.0v (build 5)"
 #define SKYPORTAL_VERSION_WSTRING L"1.0.0"
 
 // XAM ordinals hooked in the game (checked against xkelib's xamext .def files and Xenia Canary).

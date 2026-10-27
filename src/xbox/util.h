@@ -13,6 +13,16 @@ void Log(const char* fmt, ...);
 // Appends a line to Hdd1:\SkyPortal_trace.txt (written by device path, so it works from DllMain
 // before any drive letter exists). Shows how far the DLL got if it never reaches its log.
 void Trace(const char* fmt, ...);
+// Dashlaunch build: frees the log's lock after a game's threads ended (see sp::Lock::Reinit).
+void LogRecoverLock();
+
+// ---- Threads ----
+// Starts fn(NULL) on a new thread. Peer Pressure build: a thread of the game. Dashlaunch build: a
+// system thread, which keeps running (and keeps what it allocated) across game launches and exits.
+bool StartThread(LPTHREAD_START_ROUTINE fn, DWORD stack_bytes);
+// Starts fn(NULL) as a thread of the game. Call it from one of the game's own threads (a hook):
+// the new thread belongs to the game, sees what the game's threads see, and ends with the game.
+bool StartGameThread(LPTHREAD_START_ROUTINE fn, DWORD stack_bytes);
 
 // ---- Drives ----
 // Creates a drive letter, e.g. MountDrive("SKYHDD:", "\\Device\\Harddisk0\\Partition1", true).

@@ -15,10 +15,12 @@ game stand in for the console:
   - the game calls the hooks through its own (patched) import stubs with 64-bit values in
     r14-r31, which must come back whole.
 
-Usage: run_dll.py <plugin>.xex <plugin>.elf [classic|pop|drawn]   (needs Unicorn's Python
+Usage: run_dll.py <plugin>.xex <plugin>.elf [classic|pop|drawn|rgh]   (needs Unicorn's Python
 binding; set LIBUNICORN_PATH to the directory with libunicorn.so.2). The variant picks the menu
 checks: notification toasts, the skypop message box, or the skydrawn overlay (whose rendered
-front buffer is also saved as emu_drawn.png next to the .xex for a look).
+front buffer is also saved as emu_drawn.png next to the .xex for a look). rgh: the Dashlaunch
+build (drawn menu) loaded at boot on the dashboard; the game is launched, played with the menu,
+quit to the dashboard and launched again.
 """
 
 import struct
@@ -127,6 +129,30 @@ def parse_xex(data):
         records = list(struct.unpack_from(f">{n}I", data, p + 40))
         libs.append({"name": names[index], "records": records})
         p += rec_size
+    # Pages: the loader maps the image in 4 KB pages when the image flags say so, else 64 KB, and
+    # the address decides which: 0x80000000-0x8FFFFFFF is the 64 KB-page image region,
+    # 0x90000000-0x9FFFFFFF (system DLLs, Dashlaunch plugins) the 4 KB one. Each page descriptor's
+    # SHA-1 covers its pages and the next descriptor; the security info's covers the first.
+    import hashlib
+    image_flags = struct.unpack_from(">I", data, security_offset + 0x10C)[0]
+    page = 0x1000 if image_flags & 0x10000000 else 0x10000
+    base = headers[0x10201]
+    want = 0x1000 if 0x90000000 <= base < 0xA0000000 else 0x10000
+    check(page == want, f"image pages are {page // 1024} KB, as the region at {base:#x} needs {want // 1024} KB")
+    count_d = struct.unpack_from(">I", data, security_offset + 0x180)[0]
+    descs = [struct.unpack_from(">I20s", data, security_offset + 0x184 + 0x18 * i) for i in range(count_d)]
+    digest = data[security_offset + 0x114:security_offset + 0x128]
+    pos, chain_ok = 0, True
+    for i, (info, next_digest) in enumerate(descs):
+        n = info >> 4
+        raw = data[security_offset + 0x184 + 0x18 * i:security_offset + 0x184 + 0x18 * (i + 1)]
+        h = hashlib.sha1(bytes(image[pos:pos + n * page]) + raw).digest()
+        if h != digest:
+            chain_ok = False
+            break
+        digest, pos = next_digest, pos + n * page
+    check(chain_ok and pos == image_size, f"page descriptors ({count_d}) hash-chain over the whole image "
+          f"in {page // 1024} KB pages")
     return {
         "flags": flags, "base": headers[0x10201], "entry": headers[0x10100], "image": image,
         "load_address": load_address, "libs": libs,
@@ -167,7 +193,9 @@ class Console:
         mu.mem_map(GPU_REGS, 0x10000)
         mu.mem_map(FRONT_BUFFERS, 0x800000)
         mu.mem_map(PHYS_POOL, PHYS_POOL_SIZE)
-        self.phys_next = PHYS_POOL
+        # Physical address 0 is never handed out on the console (it means "none" to the menu's
+        # scan-out pin), so the pool's first allocation must not land there.
+        self.phys_next = PHYS_POOL + 0x10000
         mu.mem_map(VIRT_POOL, VIRT_POOL_SIZE)
         self.virt_next, self.virt_allocs, self.virt_frees = VIRT_POOL, {}, []
         self.phys_allocs, self.phys_frees = {}, []
@@ -185,6 +213,9 @@ class Console:
         self.sleeps = 0
         self.yield_after = None
         self.pad = {"buttons": 0, "lt": 0, "rt": 0, "packet": 1}
+        self.title_id = 0x41560911
+        self.system_dll = False
+        self.current_thread = None
         self.fs = FakeFs()
         self.links = {}
         self.handles = {}
@@ -652,13 +683,19 @@ def k_query_directory(c, h, event, apc, ctx, iosb, info, length, pattern_p, rest
 
 def k_create_link(c, link_p, device_p):
     link, device = c.ansi(link_p), c.ansi(device_p)
-    check(link.startswith("\\??\\"), f"title DLL makes title-local links ({link})")
-    c.links[link[4:].upper()] = device
+    system = link.startswith("\\System??\\")
+    on_game_thread = not (c.current_thread or {}).get("flags", 2) & 2
+    want_system = c.system_dll and not on_game_thread
+    check(system == want_system, f"{'system-wide' if want_system else 'title-local'} link from "
+          f"{'a system' if not on_game_thread else 'a game'} thread ({link})")
+    prefix = "\\System??\\" if system else "\\??\\"
+    c.links[link[len(prefix):].upper()] = device
     return 0
 
 def k_delete_link(c, link_p):
     link = c.ansi(link_p)
-    return 0 if c.links.pop(link[4:].upper(), None) else 0xC0000034
+    prefix = "\\System??\\" if c.system_dll else "\\??\\"
+    return 0 if c.links.pop(link[len(prefix):].upper(), None) else 0xC0000034
 
 def k_cs(c, cs):
     check(cs % 4 == 0, "critical section aligned")
@@ -694,7 +731,7 @@ def x_get_state(c, user, flags, state_p):
     return 0
 
 def x_title_id(c):
-    return 0x41560911
+    return c.title_id
 
 def x_notify(c, kind, user, areas, text_p, ctx):
     raw = b""
@@ -870,17 +907,53 @@ def run_pop_menu(c, worker, LB, RB, A):
     press(1)  # Swap in
     check(len(c.boxes) == 2, "an action closes the menu")
     log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
-    check("Swapped in Tree Rex" in log, "log: Tree Rex swapped in")
+    check("Swap: taking Spyro off" in log and "Swapping in Tree Rex: it goes on once the game has seen"
+          in log and "Swapped in Tree Rex" not in log,
+          "Swap in: the Skylander off first, Tree Rex not yet on (the game hasn't seen it come off)")
+
+    def game_polls(n):
+        getraw_thunk = c.game_imports[XAM_GETRAW][1]
+        st, ln, buf = STACKS + 0x8100, STACKS + 0x8104, STACKS + 0x8200
+        for _ in range(n):
+            c.put32(st, 0xFFFF0000)
+            c.put32(ln, 32)
+            c.call(getraw_thunk, [st, ln, buf], STACKS + 0x10000, label="game GetRaw")
+
+    game_polls(4)            # the game is told the figures are gone
+    c.run_thread(worker, 3)
+    game_polls(20)           # ...and keeps polling, but too soon for the new figure
+    c.run_thread(worker, 3)
+    log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    check("Swapped in Tree Rex" not in log, "Swap in: still waiting a moment after the game saw the removal")
+    game_polls(60)
+    c.run_thread(worker, 45)  # 0.9 s
+    log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    check("Swapped in Tree Rex" in log, "log: Tree Rex swapped in once the game had seen the rift empty")
     state_txt = bytes(c.fs.read("hdd/The Static Rift/rift_state.txt") or b"").decode()
     check("Giants\\Tree Rex.bin" in state_txt and "Spyro.bin" not in state_txt, "rift_state.txt: Tree Rex only")
 
+    print("skypop: swapping in a trap swaps only traps; the Skylander stays on")
     tap()
     check(len(c.boxes) == 3 and c.boxes[-1]["buttons"][1] == "Take off the rift", "menu reopens on Tree Rex")
+    press(2)  # Next: the Air trap
+    b = c.boxes[-1]
+    print("   box|", b["title"], "|", b["buttons"])
+    check(len(c.boxes) == 4 and b["title"] == "AIR TOUCAN" and b["buttons"][1] == "Swap in",
+          "box: the trap, Swap in")
+    press(1)  # Swap in
+    log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    state_txt = bytes(c.fs.read("hdd/The Static Rift/rift_state.txt") or b"").decode()
+    check("Swap: taking Tree Rex off" not in log and "Swapped in Air Toucan" in log and
+          "Giants\\Tree Rex.bin" in state_txt and "Air Toucan.bin" in state_txt,
+          "the trap went straight on next to Tree Rex (no trap was on, so nothing came off)")
+
+    tap()
+    check(len(c.boxes) == 5 and c.boxes[-1]["buttons"][1] == "Take off the rift", "menu reopens on the trap")
     press(0, status=1223)  # B: cancelled
-    check(len(c.boxes) == 3, "B closes the menu without acting")
+    check(len(c.boxes) == 5, "B closes the menu without acting")
     c.pad["buttons"] = LB | RB | A  # held for the controller-hiding checks that follow
     c.run_thread(worker, 3)
-    check(len(c.boxes) == 3, "LB+RB with A held doesn't open the menu")
+    check(len(c.boxes) == 5, "LB+RB with A held doesn't open the menu")
 
 def run_drawn_menu(c, worker, game_stack, vdswap_thunk, gfx_thunk, state_thunk, sym, LB, RB, A, RIGHT,
                    xex_path):
@@ -981,6 +1054,10 @@ def run_drawn_menu(c, worker, game_stack, vdswap_thunk, gfx_thunk, state_thunk, 
     draw = c.threads[1] if len(c.threads) > 1 else None
     pin = c.threads[2] if len(c.threads) > 2 else None
     check(draw is not None and pin is not None, "drawing and scan-out threads started")
+    if pin is not None and c.system_dll:
+        check(not pin["flags"] & 2 and not draw["flags"] & 2,
+              "Dashlaunch build: the drawing and scan-out threads are game threads, started from the "
+              "game's first VdSwap")
     if draw is None or pin is None:
         return
     c.run_thread(draw, 5)
@@ -1177,14 +1254,19 @@ def main():
     if len(sys.argv) not in (3, 4):
         sys.exit(__doc__)
     variant = sys.argv[3] if len(sys.argv) == 4 else "classic"
-    if variant not in ("classic", "pop", "drawn"):
+    if variant not in ("classic", "pop", "drawn", "rgh"):
         sys.exit(__doc__)
     print(f"variant: {variant}")
     xex = parse_xex(open(sys.argv[1], "rb").read())
     sym = elf_symbols(sys.argv[2])
     print(f"XEX: base {xex['base']:#x}, entry {xex['entry']:#x}, flags {xex['flags']:#x}, "
           f"{sum(len(l['records']) for l in xex['libs'])} import records")
-    check(xex["flags"] == 0x9, "module flags are TITLE | DLL")
+    rgh = variant == "rgh"
+    drawn = variant in ("drawn", "rgh")
+    if rgh:
+        check(xex["flags"] == 0x8, "module flags are DLL only (a system DLL, as Dashlaunch loads)")
+    else:
+        check(xex["flags"] == 0x9, "module flags are TITLE | DLL")
     check(xex["entry"] == sym["_xrt_dll_entry"], "entry point is the guest-entry trampoline")
 
     c = Console(xex, sym)
@@ -1198,9 +1280,10 @@ def main():
     c.fs.write("hdd/The Static Rift/Figures/readme.txt", b"x" * 1024)  # ignored extension
     c.fs.write("hdd/The Static Rift/Figures/short.bin", b"x" * 1000)   # wrong size
     # Four folders deep, like the pack's traps (2.0 fixed these being skipped).
+    # (character id 212 in the dump: an Air trap, for the swap-by-kind checks)
     c.fs.write("hdd/The Static Rift/Figures/Zz Extra/7) Traps/1) Crystal Traps/Air/Air Toucan.bin",
-               figure(210))
-    if variant == "drawn":
+               figure(210)[:0x10] + (212).to_bytes(2, "little") + figure(210)[0x12:])
+    if drawn:
         # The menu's index and, when tools/mkassets.py output is at $SKYPORTAL_ASSETS, its pictures.
         import os
         c.fs.write("hdd/The Static Rift/UI/figures.idx", (
@@ -1226,9 +1309,45 @@ def main():
     state_var, state_thunk = c.game_imports[XAM_GETSTATE]
     title_var, _ = c.game_imports[XAM_TITLEID]
 
+    if rgh:
+        c.fs.write("hdd/The Static Rift/staticrift.log", b"previous session's log\r\n")
+        c.fs.write("hdd/StaticRift_trace.txt", b"previous session's trace\r\n")
+        print("boot: the dashboard runs; Dashlaunch loads the plugin")
+        c.title_id = 0xFFFE07D1
+        c.put32(XEXEC_HANDLE_VAR, 0)
+        c.system_dll = True
     print("DllMain(DLL_PROCESS_ATTACH)")
     ok = c.call(xex["entry"], [0xD11, 1, 0], game_stack, label="DllMain attach")
     check(ok == 1, "DllMain returns TRUE")
+    if rgh:
+        check(c.u32(getraw_var) == export_address(LIB_XAM, XAM_GETRAW), "no game yet: nothing patched")
+        check(len(c.threads) == 1 and c.threads[0]["flags"] & 2, "one worker thread, a system thread")
+        worker = c.threads[0]
+        print("worker thread: boot startup on the dashboard")
+        c.run_thread(worker, 5)
+        log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+        for line in log.splitlines():
+            print("   log|", line)
+        check("(The Static Rift, Dashlaunch plugin, drawn menu (skydrawn))" in log, "log: Dashlaunch banner")
+        check(c.fs.read("hdd/The Static Rift/staticrift-previous.log") == b"previous session's log\r\n" and
+              c.fs.read("hdd/StaticRift_trace-previous.txt") == b"previous session's trace\r\n",
+              "the last session's log and trace are kept (-previous) when new ones start")
+        trace = bytes(c.fs.read("hdd/StaticRift_trace.txt") or b"").decode("latin-1")
+        for line in trace.splitlines():
+            print("   trace|", line)
+        check("Dashlaunch plugin attach" in trace and "running program FFFE07D1" in trace and
+              "worker thread created" in trace and "worker thread running" in trace and
+              "data folder SKYHDD:\\The Static Rift" in trace and "startup done" in trace,
+              "trace file (Hdd1 root) records each boot step")
+        check("Figure index loaded" in log, "log: UI\\figures.idx loaded at boot")
+        check("figure file(s) in Figures" not in log, "no scan before a game starts")
+        check(c.u32(getraw_var) == export_address(LIB_XAM, XAM_GETRAW), "dashboard: nothing patched")
+        check(len(c.threads) == 1 and c.threads[0]["flags"] & 2,
+              "boot: only the worker, a system thread (the menu's threads start with each game)")
+        print("Trap Team starts")
+        c.title_id = 0x41560911
+        c.put32(XEXEC_HANDLE_VAR, GAME_LDR)
+        c.run_thread(worker, 3)
     check(c.u32(getraw_var) == sym["sp_hook_get_raw_guest"], "game's GetRaw import points at the hook")
     check(c.u32(setraw_var) == sym["sp_hook_set_raw_guest"], "game's SetRaw import points at the hook")
     check(c.u32(state_var) == sym["sp_hook_get_state_guest"], "game's GetState import points at the hook")
@@ -1237,7 +1356,7 @@ def main():
     check(c.u32(proc_var) == sym["sp_hook_get_proc_guest"], "game's XexGetProcedureAddress import points at the hook")
     vdswap_var, vdswap_thunk = c.krnl_imports[0x25B]
     gfx_var, gfx_thunk = c.krnl_imports[0x1D5]
-    if variant == "drawn":
+    if drawn:
         check(c.u32(vdswap_var) == sym["sp_vdswap_hook"], "game's VdSwap import points at the overlay stub")
         check(c.u32(gfx_var) == sym["sp_set_gfx_cb_hook"],
               "game's VdSetGraphicsInterruptCallback import points at the overlay stub")
@@ -1248,36 +1367,43 @@ def main():
     target = ((words[0] & 0xFFFF) << 16) + struct.unpack(">h", struct.pack(">H", words[1] & 0xFFFF))[0]
     check((target & 0xFFFFFFFF) == sym["sp_hook_get_raw_guest"] and words[2:] == (0x7D6903A6, 0x4E800420),
           "game's GetRaw thunk jumps to the hook")
-    check(len(c.threads) == 1, "one worker thread created")
+    if not rgh:
+        check(len(c.threads) == 1, "one worker thread created")
     for reason in (2, 3):
         c.call(xex["entry"], [0xD11, reason, 0], game_stack, label=f"DllMain reason {reason}")
 
-    print("worker thread: startup")
-    worker = c.threads[0]
-    c.run_thread(worker, 3)
+    if not rgh:
+        print("worker thread: startup")
+        worker = c.threads[0]
+        c.run_thread(worker, 3)
     log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
     for line in log.splitlines():
         print("   log|", line)
     trace = bytes(c.fs.read("hdd/StaticRift_trace.txt") or b"").decode("latin-1")
     for line in trace.splitlines():
         print("   trace|", line)
-    patched = 6 if variant == "drawn" else 4
-    check("DllMain attach" in trace and f"patched {patched} import(s)" in trace and "worker thread created" in trace
-          and "startup done" in trace, "trace file records each startup step")
-    check('Game: TitleID = 0x41560911  MediaID = 0x12345678  ModuleVersion = "0.0.5.1"' in log,
-          "log: execution ID in ini syntax")
-    if variant == "drawn":
+    patched = 6 if drawn else 4
+    if rgh:
+        check(f"---- Trap Team (title 41560911): hooked {patched} import(s) while it loads ----" in log,
+              f"log: Trap Team hooked ({patched} imports) as it starts")
+    else:
+        check("DllMain attach" in trace and f"patched {patched} import(s)" in trace and "worker thread created" in trace
+              and "startup done" in trace, "trace file records each startup step")
+        check('Game: TitleID = 0x41560911  MediaID = 0x12345678  ModuleVersion = "0.0.5.1"' in log,
+              "log: execution ID in ini syntax")
+    if drawn:
         check("4 figure file(s) in Figures: 3 listed in Trap Team, 1 for later games" in log,
               "log: three figures listed for Trap Team (one four folders deep), the Imaginators one left out")
     else:
         check("3 figure file(s) in Figures: 3 listed in Trap Team, 0 for later games" in log,
               "log: three valid figures found, one four folders deep (bad ones ignored)")
     check("folder(s) in Figures are empty or couldn't be opened" not in log, "log: every folder opened")
-    if variant == "drawn":
+    if drawn:
         check("Figure index loaded" in log, "log: UI\\figures.idx loaded")
-    check(f"Hooked {patched} import(s) before the game started" in log, f"log: {patched} imports hooked from DllMain")
-    style = {"classic": "notifications", "pop": "pop-up menu (skypop)", "drawn": "drawn menu (skydrawn)"}[variant]
-    check(f"(The Static Rift, Peer Pressure sideload, {style})" in log, "log: menu style in the banner")
+    if not rgh:
+        check(f"Hooked {patched} import(s) before the game started" in log, f"log: {patched} imports hooked from DllMain")
+        style = {"classic": "notifications", "pop": "pop-up menu (skypop)", "drawn": "drawn menu (skydrawn)"}[variant]
+        check(f"(The Static Rift, Peer Pressure sideload, {style})" in log, "log: menu style in the banner")
     check("XAM function(s), ordinals (hex): 1CF 191 4A1 4A2" in log, "log: game's XAM imports named")
     check("Game imports XexGetProcedureAddress: yes (hooked)" in log, "log: lookup import hooked")
     check("Placed 'Spyro.bin' in slot 0" in log, "log: startup figure placed")
@@ -1364,7 +1490,7 @@ def main():
         check("Spyro.bin" in state_txt and "Giants\\Tree Rex.bin" in state_txt, "rift_state.txt remembers both")
     elif variant == "pop":
         run_pop_menu(c, worker, LB, RB, A)
-    else:
+    else:  # drawn, rgh
         run_drawn_menu(c, worker, game_stack, vdswap_thunk, gfx_thunk, state_thunk, sym, LB, RB, A, RIGHT,
                        sys.argv[1])
 
@@ -1376,7 +1502,9 @@ def main():
     c.pad["buttons"] = A
     res = c.call(state_thunk, [0, 0, sp], game_stack, label="game XamInputGetState")
     check(struct.unpack(">H", c.mem(sp + 4, 2))[0] == A, "A reaches the game without the combo")
-    slot = 1  # skypop's "Swap in" also lands in slot 1: slot 0 stays "removing" until the game sees it
+    # skypop swapped Tree Rex in after the game saw slot 0 emptied, so it reuses slot 0; the
+    # other menus added it next to Spyro.
+    slot = 0 if variant == "pop" else 1
     s = game_poll(ord("S"))
     check(s is not None and ((s[3] >> (2 * slot)) & 3) in (1, 3), f"status: slot {slot} holds Tree Rex")
     game_set(bytes([ord("Q"), 0x20 + slot, 3]))
@@ -1392,6 +1520,151 @@ def main():
     check("Game run-time export lookups (2 calls, 1 redirected to the portal): xam:52A xam:1CF" in log,
           "log: the game's run-time lookups and the redirect")
     check("Game portal use:" in log, "log: periodic portal-use report")
+
+    if rgh:
+        print("quit to the dashboard")
+        c.title_id = 0xFFFE07D1
+        c.put32(XEXEC_HANDLE_VAR, 0)
+        for _ in range(60):  # the game's threads are gone; the worker gives them half a second
+            c.run_thread(worker, 2)
+            log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+            if "Title 41560911 ended" in log:
+                break
+        check("Title 41560911 ended" in log, "log: the game's exit noticed")
+        state_txt = bytes(c.fs.read("hdd/The Static Rift/rift_state.txt") or b"").decode()
+        check("Giants\\Tree Rex.bin" in state_txt, "rift_state.txt remembers the rift at exit")
+        print("Trap Team starts again (a fresh copy of the game, imports unpatched)")
+        c.build_game()
+        toasts_before = len(c.toasts)
+        c.title_id = 0x41560911
+        c.put32(XEXEC_HANDLE_VAR, GAME_LDR)
+        c.run_thread(worker, 3)
+        log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+        tail = log[log.rfind("Title 41560911 ended"):]
+        for line in tail.splitlines():
+            print("   log|", line)
+        getraw_var, getraw_thunk = c.game_imports[XAM_GETRAW]
+        setraw_var, setraw_thunk = c.game_imports[XAM_SETRAW]
+        vdswap_var, _ = c.krnl_imports[0x25B]
+        check(c.u32(getraw_var) == sym["sp_hook_get_raw_guest"], "relaunch: GetRaw hooked again")
+        check(c.u32(vdswap_var) == sym["sp_vdswap_hook"], "relaunch: VdSwap hooked again")
+        check(log.count("hooked 6 import(s) while it loads") == 2, "log: second launch hooked")
+        check("2 figure(s) on the rift at start" in tail,
+              "relaunch: the figures stay on the rift between games (as on a real portal)")
+        check(any("The Static Rift is open" in t for t in c.toasts[toasts_before:]), "relaunch: ready toast")
+        res, st, data = game_get()
+        check(res == 0 and st == 0 and data == b"", "relaunch: a fresh portal session (inactive until the game starts it)")
+        check(game_set(b"R") == 0, "relaunch: SetRaw 'R'")
+        check(game_poll(ord("R")) is not None, "relaunch: ready reply")
+        game_set(b"A\x01")
+        check(game_poll(ord("A")) is not None, "relaunch: activate reply")
+        s = game_poll(ord("S"))
+        check(s is not None and s[3] & 0x0F and (s[8] & 1),
+              "relaunch: the new game is told about the figures on the rift")
+        check(len(c.threads) == 3, "no new threads before the new game presents a frame")
+
+        draw = c.threads[1]
+        vdswap_thunk = c.krnl_imports[0x25B][1]
+        current = sym["sp_menu_current"]
+
+        def present2(i):
+            virt = FRONT_BUFFERS + 0x400000 * i
+            scratch = GAME + 0xC000
+            fetch = struct.pack(">IIIIII", 1 << 31 | (FB_PITCH >> 5) << 22 | 2,
+                                (virt & 0xFFFFF000) | 2 << 6 | 6, (FB_W - 1) | (FB_H - 1) << 13, 0, 0, 0)
+            c.mu.mem_write(scratch + 0x100, fetch)
+            c.mu.mem_write(scratch + 0x200, struct.pack(">IIIII", virt, 6, 0, FB_W, FB_H))
+            c.call(vdswap_thunk, [scratch, scratch + 0x100, 0x1234, 0x5678, 0xBEEF0001, scratch + 0x200,
+                                  scratch + 0x204, scratch + 0x208], game_stack, label="game VdSwap",
+                   stack_args=[scratch + 0x20C, scratch + 0x210])
+
+        def open_menu(what):
+            present2(1)
+            present2(0)
+            c.pad["buttons"] = LB | RB
+            c.run_thread(worker, 2)
+            c.pad["buttons"] = 0
+            c.run_thread(worker, 2)
+            for _ in range(60):
+                if c.u32(current):
+                    break
+                c.run_thread(draw, 2)
+                present2(0)
+            return check(c.u32(current) != 0, what)
+
+        print("relaunched game: menu opened, then the game quits to the dashboard with it open")
+        present2(0)
+        check(len(c.threads) == 5 and not c.threads[3]["flags"] & 2 and not c.threads[4]["flags"] & 2,
+              "relaunch: the new game's first frame starts its own drawing and scan-out threads")
+        draw, pin = c.threads[3], c.threads[4]
+        c.run_thread(draw, 2)
+        c.run_thread(pin, 2)
+        open_menu("relaunch: the menu opens in the new game")
+        c.run_thread(pin, 2)
+        frees_before = (len(c.phys_frees), len(c.virt_frees))
+        c.title_id = 0xFFFE07D1
+        c.put32(XEXEC_HANDLE_VAR, 0)
+        for _ in range(80):  # the game, and the menu's threads with it, are gone
+            c.run_thread(worker, 2)
+            log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+            if log.count("Title 41560911 ended") == 2:
+                break
+        check("The game exited with the menu open" in log, "log: the exit with the menu up noticed")
+        check(log.count("Title 41560911 ended") == 2, "the exit finished")
+        check(c.u32(current) == 0 and c.u32(sym["sp_pin_phys"]) == 0, "the menu is off the display")
+        check((len(c.phys_frees), len(c.virt_frees)) == frees_before,
+              "nothing freed after the game is gone (the menu's memory is let go of, never freed twice)")
+        print("the game starts a third time: the menu works again")
+        c.build_game()
+        c.title_id = 0x41560911
+        c.put32(XEXEC_HANDLE_VAR, GAME_LDR)
+        c.run_thread(worker, 3)
+        vdswap_thunk = c.krnl_imports[0x25B][1]
+        c.call(c.krnl_imports[0x1D5][1], [GAME + 0xC800, 0xD3D0C0DE], game_stack,
+               label="game VdSetGraphicsInterruptCallback")
+        present2(0)
+        check(len(c.threads) == 7, "third launch: its own drawing and scan-out threads")
+        draw, pin = c.threads[5], c.threads[6]
+        c.run_thread(draw, 2)
+        c.run_thread(pin, 2)
+        open_menu("third launch: the menu opens again")
+        c.pad["buttons"] = LB | RB
+        c.run_thread(worker, 2)
+        c.pad["buttons"] = 0
+        c.run_thread(worker, 2)
+        for _ in range(60):
+            if not c.u32(current):
+                break
+            c.run_thread(draw, 2)
+            c.run_thread(pin, 2)
+            present2(0)
+        check(c.u32(current) == 0, "third launch: the menu closes")
+
+        print("[Menu] FullScreenMenu = 0: the next game uses the console's pop-up menu")
+        ini = bytes(c.fs.read("hdd/The Static Rift/staticrift.ini")).decode()
+        c.fs.write("hdd/The Static Rift/staticrift.ini", (ini + "[Menu]\r\nFullScreenMenu = 0\r\n").encode())
+        c.title_id = 0xFFFE07D1
+        c.put32(XEXEC_HANDLE_VAR, 0)
+        for _ in range(80):
+            c.run_thread(worker, 2)
+            log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+            if log.count("Title 41560911 ended") == 3:
+                break
+        check(log.count("Title 41560911 ended") == 3, "third game's exit finished")
+        c.build_game()
+        c.title_id = 0x41560911
+        c.put32(XEXEC_HANDLE_VAR, GAME_LDR)
+        c.run_thread(worker, 3)
+        boxes = len(c.boxes)
+        allocs = len(c.phys_allocs)
+        c.pad["buttons"] = LB | RB
+        c.run_thread(worker, 2)
+        c.pad["buttons"] = 0
+        c.run_thread(worker, 4)
+        log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+        check("Menu: pop-up menu ([Menu] FullScreenMenu = 0)" in log and len(c.boxes) > boxes,
+              "FullScreenMenu = 0: LB+RB opens the console's pop-up menu")
+        check(len(c.phys_allocs) == allocs and c.u32(current) == 0, "... and the full-screen menu stays closed")
 
     print("DllMain(DLL_PROCESS_DETACH)")
     check(c.call(xex["entry"], [0xD11, 0, 0], game_stack, label="DllMain detach") == 1, "detach returns TRUE")

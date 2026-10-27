@@ -59,6 +59,31 @@ unsigned int Hash(const char* s) {
 // Compares two relative paths for browsing. Dumps kept loose at the top of Figures (your own
 // figures, usually the ones with game progress) come first; the rest follow folder by folder,
 // case-insensitively.
+// Length of a path's folder part (up to its last backslash; 0 for a loose file).
+int DirLen(const char* rel) {
+  const char* s = strrchr(rel, '\\');
+  return s ? (int)(s - rel) : 0;
+}
+
+// Folder order: CompareRel on the folder parts only.
+int CompareDir(const char* a, const char* b) {
+  const int la = DirLen(a), lb = DirLen(b);
+  if ((la == 0) != (lb == 0)) return la == 0 ? -1 : 1;  // loose files first
+  for (int i = 0;; ++i) {
+    char x = i < la ? Lower(a[i]) : 0, y = i < lb ? Lower(b[i]) : 0;
+    if (x == '\\') x = 1;
+    if (y == '\\') y = 1;
+    if (x != y || !x) return (int)(unsigned char)x - (int)(unsigned char)y;
+  }
+}
+
+int CompareNoCase(const char* a, const char* b) {
+  for (;; ++a, ++b) {
+    const char x = Lower(*a), y = Lower(*b);
+    if (x != y || !x) return (int)(unsigned char)x - (int)(unsigned char)y;
+  }
+}
+
 int CompareRel(const char* a, const char* b) {
   const bool loose_a = !strchr(a, '\\'), loose_b = !strchr(b, '\\');
   if (loose_a != loose_b) return loose_a ? -1 : 1;
@@ -267,6 +292,12 @@ void FigureLibrary::ReadRelease(int id) {
   }
 }
 
+int FigureLibrary::CharacterId(int id) const {
+  char field[16];
+  if (id < 0 || id >= count_ || !IndexField(entries_[id].index_line, 7, field, sizeof(field))) return 0;
+  return (int)strtoul(field, NULL, 10);
+}
+
 void FigureLibrary::Series(int id, char* out, int cap) const {
   out[0] = 0;
   if (id >= 0 && id < count_) IndexField(entries_[id].index_line, 4, out, cap);
@@ -297,36 +328,34 @@ int FigureLibrary::BrowsePos(int id) const {
   return -1;
 }
 
+bool FigureLibrary::SameSection(int a, int b) const {
+  const char* x = entries_[a].rel;
+  const char* y = entries_[b].rel;
+  const int lx = DirLen(x), ly = DirLen(y);
+  if (lx != ly || _strnicmp(x, y, lx)) return false;
+  return entries_[a].element == entries_[b].element;
+}
+
 int FigureLibrary::GroupJump(int pos, int dir) const {
   const int n = browse_count_;
   if (n <= 1) return pos;
-  // A figure's group is its folder (path up to the last backslash).
-  struct Dir {
-    static int Len(const char* rel) {
-      const char* s = strrchr(rel, '\\');
-      return s ? (int)(s - rel) : 0;
-    }
-    static bool Same(const char* a, const char* b) {
-      const int la = Len(a), lb = Len(b);
-      return la == lb && !_strnicmp(a, b, la);
-    }
-  };
-  const char* here = entries_[browse_[pos]].rel;
+  // A section is a folder, or one element's figures within a folder.
+  const int here = browse_[pos];
   int p = pos;
   if (dir > 0) {
     for (int k = 0; k < n; ++k) {
       p = (p + 1) % n;
-      if (!Dir::Same(entries_[browse_[p]].rel, here)) return p;
+      if (!SameSection(browse_[p], here)) return p;
     }
     return pos;
   }
-  // Back: to the start of this group if not already there, else the start of the previous one.
+  // Back: to the start of this section if not already there, else the start of the previous one.
   int start = pos;
-  while (start > 0 && Dir::Same(entries_[browse_[start - 1]].rel, here)) --start;
+  while (start > 0 && SameSection(browse_[start - 1], here)) --start;
   if (start != pos) return start;
   p = (pos - 1 + n) % n;
-  const char* prev = entries_[browse_[p]].rel;
-  while (p > 0 && Dir::Same(entries_[browse_[p - 1]].rel, prev)) --p;
+  const int prev = browse_[p];
+  while (p > 0 && SameSection(browse_[p - 1], prev)) --p;
   return p;
 }
 
@@ -450,18 +479,32 @@ void FigureLibrary::SortBrowse() {
     }
     browse_count_ = kept;
   }
-  // Shell sort by relative path, folder by folder (n <= 2560).
+  // Shell sort (n <= 2560): folder, then element, then name.
+  for (int b = 0; b < browse_count_; ++b) Element(browse_[b]);  // cached for Before and GroupJump
   for (int gap = browse_count_ / 2; gap > 0; gap /= 2) {
     for (int i = gap; i < browse_count_; ++i) {
       const int v = browse_[i];
       int j = i;
-      while (j >= gap && CompareRel(entries_[browse_[j - gap]].rel, entries_[v].rel) > 0) {
+      while (j >= gap && Before(v, browse_[j - gap])) {
         browse_[j] = browse_[j - gap];
         j -= gap;
       }
       browse_[j] = v;
     }
   }
+}
+
+bool FigureLibrary::Before(int a, int b) const {
+  const Entry& x = entries_[a];
+  const Entry& y = entries_[b];
+  int c = CompareDir(x.rel, y.rel);
+  if (c) return c < 0;
+  // Elements in the games' order; figures without one (items, chests) after them.
+  const int ex = x.element > 0 ? x.element : 99, ey = y.element > 0 ? y.element : 99;
+  if (ex != ey) return ex < ey;
+  c = CompareNoCase(Name(a), Name(b));
+  if (c) return c < 0;
+  return CompareRel(x.rel, y.rel) < 0;
 }
 
 int FigureLibrary::Scan() {

@@ -12,6 +12,7 @@ Project Kaos-Byte2.0v (The Static Rift) is built on other people's work. Thank y
 | [Xenia](https://github.com/xenia-project/xenia) and [Xenia Canary](https://github.com/xenia-canary/xenia-canary) | XAM portal API signatures, kernel ordinals, tiled front-buffer addressing, memory call signatures | Reference; the tiled-address formula is ported | BSD |
 | [Dolphin Emulator](https://github.com/dolphin-emu/dolphin) | Skylander list (names and elements) | Read by `tools/mkassets.py` at build time only | GPL-2.0+ |
 | [Peer Pressure](https://github.com/grimdoomer/Xbox360PeerPressure) by grimdoomer | Xbox 360 softmod with DLL sideloading | Loads the plugin into each game | (see its repo) |
+| Dashlaunch by cOz; [BadUpdate](https://github.com/grimdoomer/Xbox360BadUpdate) by grimdoomer; [XeUnshackle](https://github.com/Byrom90/XeUnshackle) by Byrom90 | Plugin loading on RGH / JTAG and on BadUpdate consoles | Load the RGH build (no code used) | (see their releases) |
 | [RB3Enhanced](https://github.com/RBEnhanced/RB3Enhanced) | Sideload `.ini` format example | The six `.ini` files follow it | (see its repo) |
 | [Texthead1/Runes](https://github.com/Texthead1/Runes) | Skylander figure format docs (error byte) | Background for the Error Bypass dumps | (see its repo) |
 | Linux kernel radeon driver (AMD / X.Org) | AVIVO display register names (surface address, update lock, flip control) | Reference for the menu's screen handling | GPL-2.0 |
