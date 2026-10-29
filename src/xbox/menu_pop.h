@@ -9,5 +9,8 @@ namespace popmenu {
 void Open(int pad);   // no-op while already open
 void Poll();          // call often from the worker thread: handles the box closing
 bool IsOpen();
+// The game it was shown over has exited (Dashlaunch build): the box went with it, so stop waiting
+// for its answer.
+void Forget();
 
 }  // namespace popmenu

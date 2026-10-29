@@ -12,6 +12,13 @@ test_portal: test_portal.cpp ../src/core/portal_core.cpp ../src/core/portal_core
 test_config: test_config.cpp ../src/xbox/config.cpp ../src/xbox/config.h
 	$(CXX) -std=c++98 -Wall -Wno-unused-parameter -D_XBOX -D__cdecl= -Ixdk_stubs -I../src/xbox -o $@ test_config.cpp ../src/xbox/config.cpp
 
+# The figure library (order by type, sections, My Picks) against a small pack it writes; host
+# shims for the file APIs are in test_figures.cpp.  ./test_figures <The Static Rift> reports on
+# a real pack too.
+test_figures: test_figures.cpp ../src/xbox/figures.cpp ../src/xbox/figures.h ../src/xbox/elements.cpp
+	$(CXX) -std=c++98 -Wall -Wno-unused-parameter -D_XBOX -D__cdecl= -Ixdk_stubs -I../src/xbox -o $@ \
+	  test_figures.cpp ../src/xbox/figures.cpp ../src/xbox/elements.cpp
+
 # Import patcher + execution-ID reader (util.cpp) against a fake title import table.
 # --gc-sections drops the util.cpp functions that need real XDK file APIs.
 test_patch: test_patch.cpp ../src/xbox/util.cpp ../src/xbox/util.h
@@ -40,9 +47,10 @@ syntax:
 	  done; \
 	done
 
-run: test_portal test_config test_patch test_xrt syntax
+run: test_portal test_config test_figures test_patch test_xrt syntax
 	./test_portal
 	./test_config
+	./test_figures
 	./test_patch
 	./test_xrt
 
@@ -68,6 +76,6 @@ preview: overlay_preview.cpp ../src/xbox/overlay_render.cpp ../src/xbox/elements
 	./overlay_preview $(ASSETS) preview
 
 clean:
-	rm -f test_portal test_config test_patch test_xrt overlay_preview preview_*.ppm *.host.o test_config.tmp.ini
+	rm -f test_figures test_portal test_config test_patch test_xrt overlay_preview preview_*.ppm *.host.o test_config.tmp.ini
 
 .PHONY: all run syntax emu clean

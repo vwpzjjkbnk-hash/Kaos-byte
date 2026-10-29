@@ -131,6 +131,8 @@ void Open(int pad) {
 
 bool IsOpen() { return g.open; }
 
+void Forget() { g.open = false; }
+
 void Poll() {
   if (!g.open || g.ov.internal_low == kIoPending) return;
   const DWORD status = g.ov.internal_low;

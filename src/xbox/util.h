@@ -43,6 +43,8 @@ void Notify(const wchar_t* fmt, ...);
 void NotifyA(const char* fmt, ...);  // ASCII convenience
 
 // ---- XEX import patching ----
+// Makes freshly written instructions/data visible to instruction fetch on every core.
+void FlushRange(void* p, DWORD bytes);
 // Address of `ordinal` exported by `module` ("xam.xex", "xboxkrnl.exe"), or 0.
 DWORD ResolveExport(const char* module, DWORD ordinal);
 // Points every import of `orig_addr` in `module`'s import tables at `hook_addr` (both the

@@ -70,6 +70,24 @@ volatile LONG g_lookup_count = 0;
 
 // When set, the portal hooks forward to the real XAM functions (a real portal can be used).
 volatile bool g_passthrough = false;
+// A Skylanders game is running. The Dashlaunch build clears it between games, so a hook reached
+// some other way (xam's export table, below) hands other titles the real functions.
+volatile bool g_active = true;
+
+// What the current game reaches the hooks through (Dashlaunch build): its portal imports, its
+// XexGetProcedureAddress import. When another plugin hooked that import first (RGH "stealth"
+// plugins patch it as the game loads), the hook found there is what lookups chain to.
+int g_title_portal = 0;
+int g_title_proc = 0;
+DWORD g_chain_get_proc = 0;
+
+// xam's export table entries for the portal functions, while they point at the hooks.
+struct ExportPatch {
+  DWORD* slot;
+  DWORD saved;
+};
+ExportPatch g_export_patches[4];
+int g_export_patch_count = 0;
 
 volatile WORD g_combo_modifier = 0;
 volatile bool g_combo_need_lt = false;
@@ -112,14 +130,14 @@ DWORD SetRawCommon(DWORD device, const BYTE* buffer, DWORD length) {
 // ---- The hook entry points the title's import stubs jump to (C linkage: entry.S names them) ----
 
 extern "C" DWORD sp_hook_get_raw(WORD* state, DWORD* length, BYTE* buffer) {
-  if (g_passthrough && g_real_get_raw) {
+  if ((g_passthrough || !g_active) && g_real_get_raw) {
     return SP_CALL3(g_real_get_raw, GetRawFn, state, length, buffer);
   }
   return GetRawCommon(5, buffer, length, state);
 }
 
 extern "C" DWORD sp_hook_set_raw(DWORD length, BYTE* buffer) {
-  if (g_passthrough && g_real_set_raw) {
+  if ((g_passthrough || !g_active) && g_real_set_raw) {
 #if defined(SKYPORTAL_XRT)
     return xrt_call_guest(g_real_set_raw, length, (DWORD)buffer, 0, 0);
 #else
@@ -130,14 +148,14 @@ extern "C" DWORD sp_hook_set_raw(DWORD length, BYTE* buffer) {
 }
 
 extern "C" DWORD sp_hook_get_raw_ex(DWORD device, BYTE* buffer, DWORD* length, WORD* state) {
-  if (g_passthrough && g_real_get_raw_ex) {
+  if ((g_passthrough || !g_active) && g_real_get_raw_ex) {
     return SP_CALL4(g_real_get_raw_ex, GetRawExFn, device, buffer, length, state);
   }
   return GetRawCommon(device, buffer, length, state);
 }
 
 extern "C" DWORD sp_hook_set_raw_ex(DWORD device, BYTE* buffer, DWORD length) {
-  if (g_passthrough && g_real_set_raw_ex) {
+  if ((g_passthrough || !g_active) && g_real_set_raw_ex) {
     return SP_CALL3(g_real_set_raw_ex, SetRawExFn, device, buffer, length);
   }
   return SetRawCommon(device, buffer, length);
@@ -192,11 +210,12 @@ void RecordLookup(HANDLE module, DWORD ordinal) {
 // The game's XexGetProcedureAddress import: real lookup, then the portal functions are swapped
 // for the hooks, exactly as their imports are.
 extern "C" DWORD sp_hook_get_proc(HANDLE module, DWORD ordinal, DWORD* out) {
+  const DWORD real = g_chain_get_proc ? g_chain_get_proc : g_real_get_proc;
 #if defined(SKYPORTAL_XRT)
-  const DWORD result = xrt_call_guest(g_real_get_proc, (DWORD)module, ordinal, (DWORD)out, 0);
+  const DWORD result = xrt_call_guest(real, (DWORD)module, ordinal, (DWORD)out, 0);
 #else
   typedef DWORD (*GetProcFn)(HANDLE, DWORD, DWORD*);
-  const DWORD result = ((GetProcFn)g_real_get_proc)(module, ordinal, out);
+  const DWORD result = ((GetProcFn)real)(module, ordinal, out);
 #endif
   InterlockedIncrement((LONG*)&g_proc_calls);
   RecordLookup(module, ordinal);
@@ -231,20 +250,136 @@ void LogExports() {
             g_real_set_raw_ex);
 }
 
+namespace {
+
+// Patches the title's imports of one function: those still holding the address this plugin was
+// given, and those holding what the export resolves to now, if something has redirected it
+// since (*now gets that address, 0 if the same).
+int PatchFunction(PLDR_DATA_TABLE_ENTRY title, const char* module, DWORD ordinal, DWORD real,
+                  DWORD hook, DWORD* now) {
+  int n = util::PatchModuleImport(title, real, hook);
+  *now = 0;
+  const DWORD current = util::ResolveExport(module, ordinal);
+  if (current && current != real && current != hook) {
+    const int m = util::PatchModuleImport(title, current, hook);
+    if (m) *now = current;
+    n += m;
+  }
+  return n;
+}
+
+}  // namespace
+
 int PatchTitle(PLDR_DATA_TABLE_ENTRY title, bool hide_combo) {
   if (!title) return 0;
-  int n = 0;
-  n += util::PatchModuleImport(title, g_real_get_raw, SP_HOOK_ADDRESS(sp_hook_get_raw));
-  n += util::PatchModuleImport(title, g_real_set_raw, SP_HOOK_ADDRESS(sp_hook_set_raw));
-  n += util::PatchModuleImport(title, g_real_get_raw_ex, SP_HOOK_ADDRESS(sp_hook_get_raw_ex));
-  n += util::PatchModuleImport(title, g_real_set_raw_ex, SP_HOOK_ADDRESS(sp_hook_set_raw_ex));
+  DWORD now = 0;
+  int portal = 0;
+  portal += PatchFunction(title, "xam.xex", XAM_ORD_XamInputNonControllerGetRaw, g_real_get_raw,
+                          SP_HOOK_ADDRESS(sp_hook_get_raw), &now);
+  portal += PatchFunction(title, "xam.xex", XAM_ORD_XamInputNonControllerSetRaw, g_real_set_raw,
+                          SP_HOOK_ADDRESS(sp_hook_set_raw), &now);
+  portal += PatchFunction(title, "xam.xex", XAM_ORD_XamInputNonControllerGetRawEx,
+                          g_real_get_raw_ex, SP_HOOK_ADDRESS(sp_hook_get_raw_ex), &now);
+  portal += PatchFunction(title, "xam.xex", XAM_ORD_XamInputNonControllerSetRawEx,
+                          g_real_set_raw_ex, SP_HOOK_ADDRESS(sp_hook_set_raw_ex), &now);
+  int n = portal;
   if (hide_combo && g_real_get_state) {
     n += util::PatchModuleImport(title, g_real_get_state, SP_HOOK_ADDRESS(sp_hook_get_state));
   }
   if (g_real_get_proc) {
-    n += util::PatchModuleImport(title, g_real_get_proc, SP_HOOK_ADDRESS(sp_hook_get_proc));
+    const int proc = PatchFunction(title, "xboxkrnl.exe", 0x197, g_real_get_proc,
+                                   SP_HOOK_ADDRESS(sp_hook_get_proc), &now);
+    if (now) g_chain_get_proc = now;  // keep whatever hooked it in the chain
+    g_title_proc += proc;
+    n += proc;
   }
+  g_title_portal += portal;
   return n;
+}
+
+void ResetTitle() {
+  g_title_portal = 0;
+  g_title_proc = 0;
+  g_chain_get_proc = 0;
+}
+
+bool TitleReachesHooks() { return g_title_portal > 0 || g_title_proc > 0; }
+
+void SetActive(bool active) { g_active = active; }
+
+namespace {
+
+// xam's export table entry for `ordinal` (the HV export table its XEX security info points at:
+// address = (ImageBaseAddress << 16) + entry), or NULL. *base gets ImageBaseAddress << 16.
+DWORD* XamExportEntry(DWORD ordinal, DWORD* base) {
+  const PLDR_DATA_TABLE_ENTRY xam = (PLDR_DATA_TABLE_ENTRY)g_xam_handle;
+  if (!xam || !MmIsAddressValid(&xam->XexHeaderBase) || !xam->XexHeaderBase) return NULL;
+  const BYTE* header = (const BYTE*)xam->XexHeaderBase;
+  if (!MmIsAddressValid((PVOID)header) || *(const DWORD*)header != 0x58455832) return NULL;  // XEX2
+  const BYTE* security = header + *(const DWORD*)(header + 0x10);
+  if (!MmIsAddressValid((PVOID)(security + 0x160))) return NULL;
+  DWORD* table = *(DWORD* const*)(security + 0x160);
+  if (!table || !MmIsAddressValid(table) || table[0] != 0x48000000 || table[1] != 0x00485645) {
+    return NULL;  // not the HV export table layout
+  }
+  const DWORD count = table[9], first = table[10];
+  if (ordinal < first || ordinal - first >= count) return NULL;
+  DWORD* entry = &table[11 + (ordinal - first)];
+  if (!MmIsAddressValid(entry)) return NULL;
+  *base = table[8] << 16;
+  return entry;
+}
+
+}  // namespace
+
+bool RedirectXamExports(bool on) {
+  if (!on) {
+    for (int i = 0; i < g_export_patch_count; ++i) {
+      *g_export_patches[i].slot = g_export_patches[i].saved;
+      util::FlushRange(g_export_patches[i].slot, 4);
+    }
+    if (g_export_patch_count) util::Log("xam's portal exports restored");
+    g_export_patch_count = 0;
+    return true;
+  }
+  if (g_export_patch_count) return true;
+  const DWORD ordinals[4] = {XAM_ORD_XamInputNonControllerGetRaw,
+                             XAM_ORD_XamInputNonControllerSetRaw,
+                             XAM_ORD_XamInputNonControllerGetRawEx,
+                             XAM_ORD_XamInputNonControllerSetRawEx};
+  const DWORD reals[4] = {g_real_get_raw, g_real_set_raw, g_real_get_raw_ex, g_real_set_raw_ex};
+  const DWORD hooks[4] = {SP_HOOK_ADDRESS(sp_hook_get_raw), SP_HOOK_ADDRESS(sp_hook_set_raw),
+                          SP_HOOK_ADDRESS(sp_hook_get_raw_ex), SP_HOOK_ADDRESS(sp_hook_set_raw_ex)};
+  DWORD* entries[4];
+  DWORD bases[4];
+  // Every entry first, each checked against the address it should give, before any is changed.
+  for (int i = 0; i < 4; ++i) {
+    entries[i] = NULL;
+    if (!reals[i]) continue;
+    entries[i] = XamExportEntry(ordinals[i], &bases[i]);
+    if (!entries[i] || bases[i] + *entries[i] != reals[i]) {
+      util::Log("xam's export table isn't as expected (ordinal %X): left alone", ordinals[i]);
+      return false;
+    }
+  }
+  for (int i = 0; i < 4; ++i) {
+    if (!entries[i]) continue;
+    g_export_patches[g_export_patch_count].slot = entries[i];
+    g_export_patches[g_export_patch_count].saved = *entries[i];
+    ++g_export_patch_count;
+    *entries[i] = hooks[i] - bases[i];
+    util::FlushRange(entries[i], 4);
+  }
+  // Lookups now give the hooks?
+  for (int i = 0; i < 4; ++i) {
+    if (reals[i] && util::ResolveExport("xam.xex", ordinals[i]) != hooks[i]) {
+      util::Log("xam's export table: lookups still give the real functions; restored");
+      RedirectXamExports(false);
+      return false;
+    }
+  }
+  util::Log("xam's portal exports now lead to the Static Rift (while this game runs)");
+  return true;
 }
 
 void LogTitleImports(PLDR_DATA_TABLE_ENTRY title) {
@@ -283,6 +418,35 @@ void LogTitleImports(PLDR_DATA_TABLE_ENTRY title) {
   line[len] = 0;
   util::Log("Game imports %d XAM function(s), ordinals (hex):%s", count, len ? line : " none");
   util::Log("Game imports XexGetProcedureAddress: %s", proc ? "yes (hooked)" : "no");
+  if (proc || TitleReachesHooks()) return;
+  // Not reachable: show which imports something else has redirected (another plugin's hooks).
+  HANDLE krnl = NULL;
+  static DWORD krnl_exports[0x300];
+  if (XexGetModuleHandle((PSZ) "xboxkrnl.exe", &krnl) == 0 && krnl) {
+    for (DWORD ord = 1; ord < 0x300; ++ord) {
+      DWORD addr = 0;
+      krnl_exports[ord] = XexGetProcedureAddress(krnl, ord, &addr) == 0 ? addr : 0;
+    }
+  }
+  len = 0;
+  int foreign = 0;
+  for (int i = 0; i < nslots; ++i) {
+    const DWORD value = slots[i];
+    if (value < 0x80000000u) continue;  // the first word of a call stub (lis r11, ...)
+    bool known = false;
+    for (DWORD o = 1; !known && o < 0x700; ++o) known = xam_exports[o] == value;
+    for (DWORD o = 1; !known && o < 0x300; ++o) known = krnl_exports[o] == value;
+    // (this plugin's own stubs - the portal's and the menu's - are all close to its hooks)
+    const DWORD own = SP_HOOK_ADDRESS(sp_hook_get_raw);
+    if (known || (value >= own - 0x400000 && value < own + 0x400000)) continue;
+    ++foreign;
+    if (len < (int)sizeof(line) - 12) len += sprintf_s(line + len, sizeof(line) - len, " %08X", value);
+  }
+  line[len] = 0;
+  util::Log("XexGetProcedureAddress: the Static Rift's %08X, the kernel's now %08X; %d game "
+            "import(s) lead somewhere else (another plugin's hooks?):%s",
+            g_real_get_proc, util::ResolveExport("xboxkrnl.exe", 0x197), foreign,
+            len ? line : " none");
 }
 
 void LogLookups() {

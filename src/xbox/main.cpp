@@ -64,6 +64,7 @@ struct Settings {
   bool newest_only;           // [Menu] NewestOnly: list only each character's newest release
   bool pause_low_memory;      // [Menu] PauseGameWhenLowOnMemory
   bool full_screen;           // [Menu] FullScreenMenu: 0 = always the console's pop-up menu
+  bool sort_by_type;          // [Menu] SortByType: 0 = folder by folder, as the files are laid out
 };
 Settings g_set;
 
@@ -161,6 +162,7 @@ void LoadSettings() {
   g_set.newest_only = g_config.GetBool("Menu", "NewestOnly", true);
   g_set.pause_low_memory = g_config.GetBool("Menu", "PauseGameWhenLowOnMemory", true);
   g_set.full_screen = g_config.GetBool("Menu", "FullScreenMenu", true);
+  g_set.sort_by_type = g_config.GetBool("Menu", "SortByType", true);
 
   g_extra_title_count = 0;
   const char* key;
@@ -265,36 +267,19 @@ sp::Lock g_flush_lock;  // keeps saves one at a time
 enum FigureKind { kKindCharacter, kKindTop, kKindBottom, kKindTrap, kKindVehicle, kKindItem };
 
 FigureKind KindOf(int id) {
-  char series[40];
-  g_library.Series(id, series, sizeof(series));
-  if (!strcmp(series, "Trap") || !strcmp(series, "Trap Variant") || !strcmp(series, "Villain") ||
-      !strcmp(series, "Villain Variant")) {
-    return kKindTrap;
+  switch (g_library.GetCategory(id)) {
+    case FigureLibrary::kCatTrap: return kKindTrap;
+    case FigureLibrary::kCatVehicle: return kKindVehicle;
+    case FigureLibrary::kCatAdventure:
+    case FigureLibrary::kCatItem: return kKindItem;
+    default: break;
   }
-  if (!strcmp(series, "Land Vehicle") || !strcmp(series, "Sea Vehicle") ||
-      !strcmp(series, "Sky Vehicle")) {
-    return kKindVehicle;
-  }
-  if (!strcmp(series, "Magic Item") || !strcmp(series, "Treasure Chest") ||
-      !strcmp(series, "Adventure Pack") || !strcmp(series, "Expansion Pack") ||
-      !strcmp(series, "Battle Arena") || !strcmp(series, "Promo Item")) {
-    return kKindItem;
-  }
-  if (!strcmp(series, "Swapper Top")) return kKindTop;
-  if (!strcmp(series, "Swapper Bottom")) return kKindBottom;
-  if (series[0] && strcmp(series, "Unreleased")) return kKindCharacter;
-  // Unreleased or not in the index: by the character id's range.
+  // A Skylander: a swapper's half by its character id (1000s bottoms, 2000s tops).
   int toy = g_library.CharacterId(id);
   if (toy <= 0) {
     static sp::u8 dump[sp::kFigureSize];
     if (g_library.Load(id, dump)) toy = elements::ToyId(dump);
   }
-  if (toy >= 210 && toy <= 220) return kKindTrap;
-  if ((toy >= 200 && toy < 210) || (toy > 220 && toy < 400) || (toy >= 3300 && toy < 3400) ||
-      (toy >= 3500 && toy < 3600)) {
-    return kKindItem;
-  }
-  if (toy >= 3200 && toy < 3300) return kKindVehicle;
   if (toy >= 1000 && toy < 2000) return kKindBottom;
   if (toy >= 2000 && toy < 3000) return kKindTop;
   return kKindCharacter;
@@ -539,6 +524,40 @@ void SetPos(int pos) {
   g_menu.pos = n > 0 ? ((pos % n) + n) % n : 0;
 }
 
+// The lists R3 goes through: everything, My Picks (when the game has picks), then each game's
+// own figures (for the games that have figures in the list), and back to everything.
+enum { kViewAll = 0, kViewPicks = 1, kViewGame1 = 2, kViewCount = 8 };
+
+int CurrentView() {
+  if (g_library.PicksMode()) return kViewPicks;
+  if (g_library.ViewGame() > 0) return kViewGame1 + g_library.ViewGame() - 1;
+  return kViewAll;
+}
+
+int NextView(int cur) {
+  for (int k = 1; k < kViewCount; ++k) {
+    const int v = (cur + k) % kViewCount;
+    if (v == kViewAll) return v;
+    if (v == kViewPicks && g_library.PickCount() > 0) return v;
+    if (v >= kViewGame1 && g_library.CountFromGame(v - kViewGame1 + 1) > 0) return v;
+  }
+  return cur;
+}
+
+// "all figures", "My Picks", "Giants figures" (log, section label); `upper`: the hint's form.
+void ViewName(int view, char* out, int cap, bool upper = false) {
+  if (view == kViewPicks) {
+    strncpy_s(out, cap, upper ? "MY PICKS" : "My Picks", _TRUNCATE);
+  } else if (view >= kViewGame1) {
+    static const char* const kShort[] = {"SPYRO'S ADV.", "GIANTS", "SWAP FORCE", "TRAP TEAM",
+                                         "SUPERCHARGERS", "IMAGINATORS"};
+    if (upper) strncpy_s(out, cap, kShort[view - kViewGame1], _TRUNCATE);
+    else sprintf_s(out, cap, "%s figures", GameName(view - kViewGame1 + 1));
+  } else {
+    strncpy_s(out, cap, upper ? "ALL" : "all figures", _TRUNCATE);
+  }
+}
+
 void GetView(int pos, View* out) {
   const int n = g_library.BrowseCount();
   memset(out, 0, sizeof(*out));
@@ -550,21 +569,40 @@ void GetView(int pos, View* out) {
   if (out->id >= 0) {
     out->game = g_library.Game(out->id);
     g_library.Series(out->id, out->series, (int)sizeof(out->series));
-    GroupName(g_library.Rel(out->id), out->group, (int)sizeof(out->group));
-    // The element section (unless the folder is already named after it, like a trap's).
-    const char* el = elements::Name((elements::Element)out->element);
-    if (el[0]) {
-      const char* last = strrchr(out->group, '/');
-      last = last ? last + 2 : out->group;
-      if (_stricmp(last, el)) {
-        const int len = (int)strlen(out->group);
-        sprintf_s(out->group + len, sizeof(out->group) - len, " / %s", el);
+    char section[96];
+    char list[48] = "";
+    if (CurrentView() != kViewAll) {
+      ViewName(CurrentView(), list, sizeof(list));
+      sprintf_s(list + strlen(list), sizeof(list) - strlen(list), " / ");
+    }
+    if (g_library.SectionLabel(out->id, section, sizeof(section))) {  // by type
+      sprintf_s(out->group, sizeof(out->group), "%s%s", list, section);
+    } else {
+      GroupName(g_library.Rel(out->id), out->group, (int)sizeof(out->group));
+      // The element section (unless the folder is already named after it, like a trap's).
+      const char* el = elements::Name((elements::Element)out->element);
+      if (el[0]) {
+        const char* last = strrchr(out->group, '/');
+        last = last ? last + 2 : out->group;
+        if (_stricmp(last, el)) {
+          const int len = (int)strlen(out->group);
+          sprintf_s(out->group + len, sizeof(out->group) - len, " / %s", el);
+        }
+      }
+      if (list[0]) {
+        char tmp[96];
+        strncpy_s(tmp, sizeof(tmp), out->group, _TRUNCATE);
+        sprintf_s(out->group, sizeof(out->group), "%s%s", list, tmp);
       }
     }
     if (!g_library.ImagePath(out->id, out->image, (int)sizeof(out->image))) out->image[0] = 0;
   }
   out->on_portal = out->id >= 0 && (g_portal.FindTag(out->id) >= 0 || out->id == g_swap.id);
   out->portal_count = PortalNames(out->portal_names, (int)sizeof(out->portal_names));
+  out->picks_available = g_library.PickCount() > 0;
+  out->picks_mode = g_library.PicksMode();
+  const int next = NextView(CurrentView());
+  if (next != CurrentView()) ViewName(next, out->next_list, (int)sizeof(out->next_list), true);
 }
 
 void Do(Action action, bool toast) {
@@ -726,7 +764,8 @@ void PollDrawn(DWORD now) {
           g_drawn.prev_lt = st.Gamepad.bLeftTrigger >= 0x80;
           g_drawn.prev_rt = st.Gamepad.bRightTrigger >= 0x80;
           g_menu.repeat_at = now + 400;
-          util::Log("Menu opened (pad %d, %d figures)", i, g_library.BrowseCount());
+          util::Log("Menu opened (pad %d, %d figures, on %s)", i, g_library.BrowseCount(),
+                    view.name && view.name[0] ? view.name : "none");
         }
       }
       g_drawn.mod_was_held[i] = held;
@@ -793,6 +832,32 @@ void PollDrawn(DWORD now) {
   if (menu_pressed & XINPUT_GAMEPAD_B) { menu::Do(menu::kRemove, false); changed = true; }
   if (menu_pressed & XINPUT_GAMEPAD_Y) { menu::Do(menu::kSwap, false); changed = true; }
   if (menu_pressed & XINPUT_GAMEPAD_X) { menu::Do(menu::kClear, false); changed = true; }
+  if (menu_pressed & XINPUT_GAMEPAD_RIGHT_THUMB) {  // R3: the next list
+    const int cur = menu::CurrentView(), next = menu::NextView(cur);
+    if (next == cur) {
+      util::Log("Menu: R3 - no other list for this game");
+    } else {
+      const int sel = SelectedId();
+      g_library.SetPicksMode(next == menu::kViewPicks);
+      g_library.SetViewGame(next >= menu::kViewGame1 ? next - menu::kViewGame1 + 1 : 0);
+      g_library.Resort();
+      const int p = g_library.BrowsePos(sel);
+      g_menu.pos = p >= 0 ? p : 0;
+      char name[48];
+      menu::ViewName(next, name, sizeof(name));
+      util::Log("Menu: %s (%d figures)", name, g_library.BrowseCount());
+      if (g_library.PicksMode()) {
+        util::Log("Menu: %d of %d picks found for this game", g_library.PicksFound(),
+                  g_library.PickCount());
+        for (int i = 0; i < g_library.PickCount(); ++i) {
+          if (!g_library.PickFound(i)) {
+            util::Log("Menu: no figure for the pick \"%s\"", g_library.PickText(i));
+          }
+        }
+      }
+      changed = true;
+    }
+  }
   if (menu_pressed & (XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT)) {
     g_menu.repeat_at = now + 400;
   } else {
@@ -1018,10 +1083,52 @@ int GameNumber(DWORD title) {
   return game;
 }
 
+// "My Picks" (R3 in the full-screen menu): <root>\picks.ini, one section per game, any keys
+// (the element names are just labels), values: figure names separated by commas.
+void LoadPicks(int game) {
+  static Config picks;  // big: kept off the stack
+  static char names_buf[2048];
+  const char* names[64];
+  int count = 0;
+  char path[MAX_PATH];
+  sprintf_s(path, sizeof(path), "%s\\picks.ini", g_root);
+  if (game && picks.Load(path)) {
+    int used = 0;
+    const char* key;
+    const char* value;
+    for (int i = 0; picks.Value(menu::GameName(game), i, &key, &value); ++i) {
+      // Split "Bouncer, Drobot" into names.
+      for (const char* p = value; *p && count < 64;) {
+        while (*p == ' ' || *p == ',') ++p;
+        const char* start = p;
+        while (*p && *p != ',') ++p;
+        const char* end = p;
+        while (end > start && end[-1] == ' ') --end;
+        const int len = (int)(end - start);
+        if (len > 0 && used + len + 1 < (int)sizeof(names_buf)) {
+          memcpy(names_buf + used, start, len);
+          names_buf[used + len] = 0;
+          names[count++] = names_buf + used;
+          used += len + 1;
+        }
+      }
+    }
+  }
+  g_library.SetPicks(names, count);
+  g_library.SetPicksMode(false);  // each game starts on the full list
+  g_library.SetViewGame(0);
+  if (game) {
+    util::Log("My Picks for %s: %d name(s) in picks.ini%s", menu::GameName(game), count,
+              count ? " (R3 in the menu shows them)" : "");
+  }
+}
+
 void ScanForTitle(DWORD title) {
   const int game = GameNumber(title);
   g_library.SetGameFilter(g_set.only_compatible ? game : 0);
   g_library.SetNewestOnly(g_set.newest_only);
+  g_library.SetSortByType(g_set.sort_by_type);
+  LoadPicks(game);
   const int figures = g_library.Scan();
   g_menu.last_scan = GetTickCount();
   util::Log("%d figure file(s) in Figures: %d listed in %s, %d for later games ([Menu] "
@@ -1032,6 +1139,9 @@ void ScanForTitle(DWORD title) {
   if (g_library.UnreadableDirs() > 0) {
     util::Log("%d folder(s) in Figures are empty or couldn't be opened", g_library.UnreadableDirs());
   }
+  util::Log(g_set.sort_by_type ? "Menu order: by type (gimmick Skylanders, crystals, Skylanders, "
+                                 "vehicles, traps, adventure packs, magic items), element, name"
+                               : "Menu order: folder by folder ([Menu] SortByType = 0)");
 }
 
 #if defined(SKYPORTAL_SIDELOAD)
@@ -1172,6 +1282,9 @@ void ResetMenuState() {
   Drawn fresh = {-1, 0, false, false, {false, false, false, false}, false, -1};
   g_drawn = fresh;
 #endif
+#if defined(SKYPORTAL_MENU_DRAWN) || defined(SKYPORTAL_MENU_POP)
+  popmenu::Forget();  // a pop-up box left open went with the game
+#endif
   hooks::SetInputBlocked(false);
 }
 
@@ -1180,6 +1293,16 @@ void StartGame(DWORD title, PLDR_DATA_TABLE_ENTRY module, int patched) {
   const int game = GameNumber(title);
   util::Log("---- %s (title %08X): hooked %d import(s) while it loads ----",
             game ? menu::GameName(game) : "Game", title, patched);
+#if !defined(SKYPORTAL_SIDELOAD)
+  hooks::SetActive(true);
+  if (!hooks::TitleReachesHooks()) {
+    // Another plugin got to the game's XexGetProcedureAddress first: its portal lookups would
+    // miss the hooks. Done before the scan below, well before the game looks the portal up.
+    util::Log("The game's portal lookups don't pass through the Static Rift (another plugin's "
+              "hooks?): pointing xam's exports at it instead");
+    hooks::RedirectXamExports(true);
+  }
+#endif
   LoadSettings();  // staticrift.ini changes apply at the next game, no restart needed
   hooks::SetPassthrough(!g_set.enabled);
   ScanForTitle(title);
@@ -1204,6 +1327,7 @@ DWORD WINAPI WorkerThread(LPVOID) {
     return 0;
   }
   hooks::LogExports();
+  hooks::SetActive(false);  // until a Skylanders game is hooked
 #if defined(SKYPORTAL_MENU_DRAWN)
   overlay::Start(g_root, g_set.overlay_swap_rb);  // idle until a game presents frames
 #endif
@@ -1238,6 +1362,8 @@ DWORD WINAPI WorkerThread(LPVOID) {
 #endif
         util::Log("Title %08X ended (%u read(s), %u write(s) by the game)", hooked_title,
                   hooks::ReadCalls(), hooks::WriteCalls());
+        hooks::SetActive(false);
+        hooks::RedirectXamExports(false);
       }
       ResetMenuState();
       CancelSwap();
@@ -1251,6 +1377,7 @@ DWORD WINAPI WorkerThread(LPVOID) {
 
     if (!hooked && TitleAllowed(title) && module) {
       // As early as possible: before the game sets up Direct3D and the portal.
+      hooks::ResetTitle();
       int patched = hooks::PatchTitle(module, g_set.hide_combo);
 #if defined(SKYPORTAL_MENU_DRAWN)
       patched += overlay::PatchTitle(module);

@@ -58,6 +58,7 @@ int _vsnwprintf_s(wchar_t*, size_t, size_t, const wchar_t*, va_list);
 int strncpy_s(char*, size_t, const char*, size_t);
 char* strtok_s(char*, const char*, char**);
 int _stricmp(const char*, const char*);
+extern "C" int _strnicmp(const char*, const char*, size_t);
 #define XINPUT_GAMEPAD_DPAD_UP 0x0001
 #define XINPUT_GAMEPAD_DPAD_DOWN 0x0002
 #define XINPUT_GAMEPAD_DPAD_LEFT 0x0004

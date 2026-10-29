@@ -61,6 +61,7 @@ VOID RtlInitAnsiString(PANSI_STRING dest, PCSZ source);
 extern PLDR_DATA_TABLE_ENTRY* const XexExecutableModuleHandle;
 NTSTATUS XexGetModuleHandle(PSZ name, PHANDLE handle);
 NTSTATUS XexGetProcedureAddress(HANDLE module, DWORD ordinal, PVOID address);
+BOOL MmIsAddressValid(PVOID address);
 DWORD XamGetCurrentTitleId(VOID);
 
 // XAM's qwAreas is a 64-bit argument the console passes whole in one register (r5); a 32-bit

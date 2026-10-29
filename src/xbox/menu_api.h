@@ -17,6 +17,9 @@ struct View {
   bool on_portal;
   int portal_count;   // figures on the portal
   char portal_names[160];  // "Spyro, Bash" (truncated)
+  bool picks_available;   // the game has "My Picks" (R3 switches lists)
+  bool picks_mode;        // showing My Picks
+  char next_list[24];     // what R3 shows next ("MY PICKS", "GIANTS", "ALL"), "" = nothing else
 };
 
 enum Action { kAdd, kSwap, kRemove, kClear };

@@ -53,14 +53,37 @@ and tap it again (or press Back) to close it.
 | Button | Does |
 |---|---|
 | D-pad left / right | Previous / next figure (hold to scroll) |
-| D-pad up / down | Previous / next section (a folder, or one element within it) |
+| D-pad up / down | Previous / next section (a type and element, like "Skylanders / Magic") |
 | LT / RT | Back / forward 10 figures |
 | A | Put the figure on the Rift |
 | Y | Swap in: replaces the figure(s) of the same kind (Skylander, trap, vehicle or item) |
 | B | Take it off |
 | X | Clear the Rift |
+| R3 | Next list: **My Picks**, then each game's own figures, then all figures again |
 
-Figures are listed game by game and folder by folder, sorted by element and then by name.
+Figures are listed by type, wherever their files are in the pack: **gimmick Skylanders**
+(Giants, Swappers, Trap Masters, SuperChargers, Senseis, and their variants), **creation
+crystals**, **Skylanders**, **vehicles**, **traps**, **adventure packs**, then **magic items**.
+Within each type they're sorted by element, then by name. So an Eon's Elite or a variant sits with
+the other Skylanders of its element, not in a far-away folder. (`SortByType = 0` puts back the
+folder-by-folder order.)
+
+**My Picks (R3):** press R3 (click the right stick) in the menu to switch to your picks for the
+game you're playing, and again to go back to everything. Your picks are in
+`The Static Rift/picks.ini` (one section per game; edit it in Notepad). The picks list shows each
+Skylander you named, plus every crystal, vehicle, trap, adventure pack and magic item the game can
+use, in the same order. Every unreleased figure the game can use is in it too (Instant, Special
+and Corrupted figures, Heartbreaker Buckshot, VVind-Up, Goldie...), each with the regular figure
+it's a version of (Instant Food Fight brings Food Fight, Special Air Strike brings Air Strike).
+To pick one release of a figure, put its game in front or its series after it: `Trap Team Eon's
+Elite Chop Chop`, `Drobot (Series 2)`. A name that's slightly misspelled still finds its figure,
+and the log lists any pick nothing matched.
+
+**One game's figures (R3 again):** after My Picks, R3 shows only the figures from one game at a
+time (Spyro's Adventure's, then Giants', and so on: every release in that game's folder, for the
+games whose figures the running game can use), then goes back to all figures. The hint at the
+bottom of the menu says which list R3 shows next.
+
 Everything else works as in the Peer Pressure version: only the figures the game can use are
 listed, game progress is saved back into the figure files (with a backup in
 `The Static Rift/Backups`), and the game pauses behind the menu in games that leave very little
@@ -77,6 +100,7 @@ Changes apply the next time you start a Skylanders game; no restart needed.
 | `[Menu] NewestOnly` | 1 | 0 = list every series and variant of a Skylander |
 | `[Menu] PauseGameWhenLowOnMemory` | 1 | 0 = never pause; the console's pop-up menu is used instead |
 | `[Menu] FullScreenMenu` | 1 | 0 = always use the console's plainer pop-up menu |
+| `[Menu] SortByType` | 1 | 0 = list figures folder by folder, as the files are laid out |
 | `[General] SaveWrites` | 1 | 0 = don't save game progress into the figure files |
 | `[General] RememberPortal` | 1 | Keep the same figures on the Rift after a restart |
 | `[Controls] Modifier` | LB+RB | The button combo that opens the menu |
@@ -93,6 +117,10 @@ five folders deep) and it shows up in the menu.
   look again. If no new `StaticRift_trace.txt` appears, Dashlaunch didn't load the plugin: check
   you edited the right `launch.ini` (step 4), the exact path, a free `pluginN` number, and that
   the file really is in `Hdd1/Plugins`.
+- **"Portal Disconnected" in the game:** another plugin (RGH "stealth" plugins do this) may hook
+  the way the game finds the portal before the Static Rift sees the game. The Static Rift works
+  around that by itself; the log then says "pointing xam's exports at it instead". If the game
+  still says the portal is disconnected, send the log (below).
 - **Another plugin stops working, or this one never loads:** two plugins may want the same
   memory address. Try removing other plugins one at a time to find which, and report it.
 - **Anything else:** the log is `Hdd1/The Static Rift/staticrift.log`. It records each game you

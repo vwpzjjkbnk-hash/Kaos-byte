@@ -17,6 +17,20 @@ void LogExports();
 // (Peer Pressure: from DllMain); the Dashlaunch build calls it right after a title loads.
 int PatchTitle(PLDR_DATA_TABLE_ENTRY title, bool hide_combo);
 
+// Dashlaunch build. Another plugin can hook the game's XexGetProcedureAddress import as the game
+// loads (RGH "stealth" plugins do), and the game then looks the portal functions up past the
+// hooks. PatchTitle also patches imports holding what an export resolves to now, and chains to a
+// XexGetProcedureAddress hook it replaces; TitleReachesHooks says whether the game reaches the
+// hooks at all (its portal imports or its XexGetProcedureAddress); if not,
+// RedirectXamExports(true) points xam's own export table entries for the portal functions at
+// the hooks while the game runs (every lookup, through any hooks, ends there), and
+// RedirectXamExports(false) puts them back. SetActive(false) between games: the hooks then
+// forward to the real functions.
+void ResetTitle();
+bool TitleReachesHooks();
+bool RedirectXamExports(bool on);
+void SetActive(bool active);
+
 // Button combo hidden from the game while held: when (buttons & modifier) == modifier and
 // the triggers named by need_lt/need_rt are pulled, `hide` buttons are cleared before the game
 // sees the pad state. Set modifier 0 to disable.

@@ -576,16 +576,21 @@ void RenderStrip(const Scene& s, Strip* strip) {
 
   // Button hints.
   const int hy = H - Sc(52);
-  const int hw = HintWidth(small, "A", true, "ADD") + HintWidth(small, "Y", true, "SWAP IN") +
-                 HintWidth(small, "B", true, "REMOVE") + HintWidth(small, "X", true, "CLEAR") +
-                 HintWidth(small, "D-PAD", false, "BROWSE") + HintWidth(small, "LB+RB", false, "CLOSE") -
-                 Sc(24);
+  int hw = HintWidth(small, "A", true, "ADD") + HintWidth(small, "Y", true, "SWAP IN") +
+           HintWidth(small, "B", true, "REMOVE") + HintWidth(small, "X", true, "CLEAR") +
+           HintWidth(small, "D-PAD", false, "BROWSE") + HintWidth(small, "LB+RB", false, "CLOSE") -
+           Sc(24);
+  // R3 goes to the next list (My Picks, one game's figures, everything), when there's room.
+  const char* r3 = v.next_list;
+  const bool show_r3 = r3[0] && hw + HintWidth(small, "R3", false, r3) <= W - Sc(40);
+  if (show_r3) hw += HintWidth(small, "R3", false, r3);
   int hx = cx - hw / 2;
   ButtonHint(small, &hx, hy, "A", kBtnA, "ADD");
   ButtonHint(small, &hx, hy, "Y", kBtnY, "SWAP IN");
   ButtonHint(small, &hx, hy, "B", kBtnB, "REMOVE");
   ButtonHint(small, &hx, hy, "X", kBtnX, "CLEAR");
   ButtonHint(small, &hx, hy, "D-PAD", 0, "BROWSE");
+  if (show_r3) ButtonHint(small, &hx, hy, "R3", 0, r3);
   ButtonHint(small, &hx, hy, "LB+RB", 0, "CLOSE");
 }
 

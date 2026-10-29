@@ -1,6 +1,7 @@
 // Renders menu screenshots with the console's own drawing code (overlay_render.cpp), one per line
 // of a spec file:  out.ppm|w|h|name|element|game|series|group|image|pos|count|on_portal|portal names
 //   promo_shots <The Static Rift dir> <spec file>
+// (optional trailing fields: picks available, picks mode, what R3 shows next)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -128,6 +129,10 @@ int main(int argc, char** argv) {
     v.id = v.pos;
     v.on_portal = atoi(Field(&p)) != 0;
     strncpy(v.portal_names, Field(&p), sizeof(v.portal_names) - 1);
+    if (*p) v.picks_available = atoi(Field(&p)) != 0;  // optional: picks available, picks mode,
+    if (*p) v.picks_mode = atoi(Field(&p)) != 0;       // what R3 shows next ("GIANTS")
+    if (*p) strncpy(v.next_list, Field(&p), sizeof(v.next_list) - 1);
+    else if (v.picks_available) strcpy(v.next_list, v.picks_mode ? "ALL" : "MY PICKS");
     v.portal_count = 0;
     if (v.portal_names[0]) {
       v.portal_count = 1;

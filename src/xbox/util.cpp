@@ -254,8 +254,6 @@ void NotifyA(const char* fmt, ...) {
 // Import patching
 // --------------------------------------------------------------------------------------------
 
-namespace {
-
 // Makes freshly written instructions/data visible to instruction fetch on every core.
 void FlushRange(void* p, DWORD bytes) {
   BYTE* start = (BYTE*)((DWORD)p & ~(DWORD)127);
@@ -269,6 +267,8 @@ void FlushRange(void* p, DWORD bytes) {
   }
   __isync();
 }
+
+namespace {
 
 // lis r11,hi ; addi r11,r11,lo ; mtctr r11 ; bctr
 void WriteJump(DWORD* at, DWORD dest) {

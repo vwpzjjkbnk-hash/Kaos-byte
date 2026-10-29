@@ -20,6 +20,7 @@ VOID RtlInitAnsiString(PANSI_STRING, PCSZ);
 extern PLDR_DATA_TABLE_ENTRY* XexExecutableModuleHandle;
 NTSTATUS XexGetModuleHandle(PSZ, PHANDLE);
 NTSTATUS XexGetProcedureAddress(HANDLE, DWORD, PVOID);
+BOOL MmIsAddressValid(PVOID);
 DWORD XamGetCurrentTitleId(VOID);
 VOID XNotifyQueueUI(XNOTIFYQUEUEUI_TYPE, DWORD, ULONGLONG, PWCHAR, PVOID);
 }

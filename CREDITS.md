@@ -39,10 +39,18 @@ by **SkylandersNFC**, with dumps and fixes from its community:
 
 ## Pictures
 
-- **Card art:** the "Mr Shadow" card set and the SkylandersNFC logo cards (creation crystals,
-  chests, unreleased), from the
+- **Card art**, from the
   [Skylanders Image Generator](https://github.com/skylandersNFC/Skylanders-Image-Generator)
-  by **SkylandersNFC**. The card artist credited in that set's file names is **Mr Shadow**.
+  by **SkylandersNFC**:
+  - **Mr Shadow**: the cards for almost every figure (his card is used wherever he drew the figure
+    for its game).
+  - **SkylandersNFC**: the logo cards for creation crystals, chests and unreleased crystals.
+  - **Dim**: the Trap Team villain cards.
+  - **IndominusRex**: the Imaginators chase variants (Clear Starcast, Dec-Ember, Happy Birthday Ben
+    Starcast, Orange Chain Reaction, Pink Barbella, Rock Candy Pain-Yatta).
+  - **Sobersu**: the Easter Bunny Earth Trap card.
+  - **Cha0s** (coin art): the Spyro's Adventure and Giants chase variants.
+  - **fruitsnack** (coin art): Mobile Hot Streak.
 - **Premade creation pictures:** from the Skylanders Ultimate NFC Pack.
 - **Menu background, element icons and game logos:** from the project owner's own image
   collection. *Original sources: TODO, fill in before publishing.*

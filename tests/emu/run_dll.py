@@ -35,7 +35,7 @@ except ImportError:
 # ------------------------------------------------------------------------------------------------
 # Memory layout of the fake console
 # ------------------------------------------------------------------------------------------------
-KERNEL = 0x80100000      # fake exports: KERNEL + library*0x1000 + ordinal*4
+KERNEL = 0x80100000      # fake exports: KERNEL + library*0x2000 + ordinal*4
 KVARS = 0x80110000       # fake kernel variables
 RETURN_MAGIC = 0x8011F000  # returning here ends a call()
 PCR = 0x801B0000         # r13 points at a processor control region on the console
@@ -60,9 +60,16 @@ LIB_XAM, LIB_KRNL = 0, 1
 LIB_INDEX = {"xam.xex": LIB_XAM, "xboxkrnl.exe": LIB_KRNL}
 
 def export_address(library, ordinal):
-    return KERNEL + library * 0x1000 + ordinal * 4
+    return KERNEL + library * 0x2000 + ordinal * 4
 
 XAM_GETRAW, XAM_SETRAW, XAM_GETSTATE, XAM_TITLEID = 0x4A1, 0x4A2, 0x191, 0x1CF
+# xam's loader entry (its module handle), XEX header, security info and HV export table: the
+# kernel's XexGetProcedureAddress reads the export table, so a changed entry changes lookups.
+XAM_HANDLE = 0x58AA0000
+XAM_HEADER = XAM_HANDLE + 0x1000
+XAM_EXPORTS = XAM_HANDLE + 0x2000
+KRNL_HANDLE = 0x58AB0000
+STEALTH_HOOK = GAME + 0x3000  # another plugin's XexGetProcedureAddress hook (RGH stealth plugins)
 XEXEC_HANDLE_VAR = KVARS + 0x10  # XexExecutableModuleHandle: holds GAME_LDR
 
 STATUS_SUCCESS = 0
@@ -189,6 +196,8 @@ class Console:
         mu.mem_map(PCR, 0x10000)
         mu.mem_write(PCR + 0x100, struct.pack(">I", PCR + 0x1000))  # PCR->CurrentThread
         mu.mem_map(GAME, 0x10000)
+        mu.mem_map(XAM_HANDLE, 0x10000)
+        mu.mem_map(KRNL_HANDLE, 0x1000)
         mu.mem_map(STACKS, 0x100000)
         mu.mem_map(GPU_REGS, 0x10000)
         mu.mem_map(FRONT_BUFFERS, 0x800000)
@@ -221,8 +230,10 @@ class Console:
         self.handles = {}
         self.next_handle = 0x100
         self.call_depth = 0
+        self.allow_real_raw = False  # the real raw portal API may only be reached when this is set
         mu.hook_add(UC_HOOK_CODE, self.on_export, begin=KERNEL, end=KERNEL + 0x1FFFF)
         self.resolve_imports()
+        self.build_xam()
         self.build_game()
 
     # ---- registers / memory helpers ----
@@ -289,17 +300,38 @@ class Console:
                 else:
                     check(False, f"unknown import record type {kind} at {addr:#x}")
 
+    # ---- xam as the kernel sees it: loader entry -> XEX header -> security info -> export table ----
+    def build_xam(self):
+        self.put32(XAM_HANDLE + 0x58, XAM_HEADER)
+        self.mu.mem_write(XAM_HEADER, b"XEX2")
+        self.put32(XAM_HEADER + 0x10, 0x100)                 # security info offset
+        self.put32(XAM_HEADER + 0x100 + 0x160, XAM_EXPORTS)  # its export table
+        count = 0x600
+        table = struct.pack(">IIIIIIIIIII", 0x48000000, 0x00485645, 0x48000000, 0, 0, 0, 0, 0,
+                            KERNEL >> 16, count, 1)
+        table += b"".join(struct.pack(">I", export_address(LIB_XAM, o) - KERNEL) for o in range(1, count + 1))
+        self.mu.mem_write(XAM_EXPORTS, table)
+
+    def xam_export(self, ordinal):
+        base, first = self.u32(XAM_EXPORTS + 0x20) << 16, self.u32(XAM_EXPORTS + 0x28)
+        return (base + self.u32(XAM_EXPORTS + 0x2C + 4 * (ordinal - first))) & 0xFFFFFFFF
+
     # ---- the fake game: an import table with xam's portal + input imports ----
-    def build_game(self):
+    # portal=False: a game that only looks the portal functions up at run time; proc_value: what
+    # its XexGetProcedureAddress import holds (another plugin's hook) instead of the export.
+    def build_game(self, portal=True, proc_value=None):
         self.game_imports = {}  # ordinal -> (var, thunk)
-        entries = [(LIB_XAM, XAM_TITLEID), (LIB_XAM, XAM_GETSTATE), (LIB_XAM, XAM_GETRAW),
-                   (LIB_XAM, XAM_SETRAW), (LIB_KRNL, 0x0CF), (LIB_KRNL, 0x197), (LIB_KRNL, 0x25B),
-                   (LIB_KRNL, 0x1D5)]
+        entries = [(LIB_XAM, XAM_TITLEID), (LIB_XAM, XAM_GETSTATE)]
+        if portal:
+            entries += [(LIB_XAM, XAM_GETRAW), (LIB_XAM, XAM_SETRAW)]
+        entries += [(LIB_KRNL, 0x0CF), (LIB_KRNL, 0x197), (LIB_KRNL, 0x25B), (LIB_KRNL, 0x1D5)]
         self.krnl_imports = {}
         var, thunk = GAME + 0x1000, GAME + 0x2000
         per_lib = {LIB_XAM: [], LIB_KRNL: []}
         for lib, ordinal in entries:
             target = export_address(lib, ordinal)
+            if (lib, ordinal) == (LIB_KRNL, 0x197) and proc_value is not None:
+                target = proc_value
             self.put32(var, target)
             self.mu.mem_write(thunk, struct.pack(">IIII", 0x3D600000 | (target >> 16),
                                                  0x616B0000 | (target & 0xFFFF), 0x7D6903A6, 0x4E800420))
@@ -415,7 +447,7 @@ class Console:
             uc.emu_stop()
             return
         offset = addr - KERNEL
-        lib, ordinal = offset // 0x1000, (offset % 0x1000) // 4
+        lib, ordinal = offset // 0x2000, (offset % 0x2000) // 4
         name, nargs, fn = EXPORTS.get((lib, ordinal), (None, 0, None))
         if fn is None:
             check(False, f"call to unexpected export lib {lib} ordinal {ordinal:#x}")
@@ -713,14 +745,21 @@ def k_init_ansi(c, dest, src):
 
 def k_module_handle(c, name_p, handle_p):
     name = c.cstr(name_p)
-    if name != "xam.xex":
+    handle = {"xam.xex": XAM_HANDLE, "xboxkrnl.exe": KRNL_HANDLE}.get(name)
+    if not handle:
         return 0xC0000225
-    c.put32(handle_p, 0x58AA0000)
+    c.put32(handle_p, handle)
     return 0
 
+def k_address_valid(c, addr):
+    return int(any(lo <= addr <= hi for lo, hi, _ in c.mu.mem_regions()))
+
 def k_proc_address(c, handle, ordinal, out_p):
-    check(handle == 0x58AA0000, "XexGetProcedureAddress gets xam's handle")
-    c.put32(out_p, export_address(LIB_XAM, ordinal))
+    check(handle in (XAM_HANDLE, KRNL_HANDLE), "XexGetProcedureAddress gets xam's or the kernel's handle")
+    if handle == KRNL_HANDLE:
+        c.put32(out_p, export_address(LIB_KRNL, ordinal))
+    else:
+        c.put32(out_p, c.xam_export(ordinal))  # from xam's export table, as the kernel does
     return 0
 
 def x_get_state(c, user, flags, state_p):
@@ -809,7 +848,7 @@ def x_message_box(c, user, title, text, count, buttons_p, focus, flags, result_p
     return 997
 
 def x_raw_passthrough(c, *args):
-    check(False, "real XAM raw portal API reached while the virtual portal is on")
+    check(c.allow_real_raw, "real XAM raw portal API reached while the virtual portal is on")
     return 0x48F
 
 EXPORTS = {
@@ -837,6 +876,7 @@ EXPORTS = {
     (LIB_KRNL, 0x195): ("XexGetModuleHandle", 2, k_module_handle),
     (LIB_KRNL, 0x197): ("XexGetProcedureAddress", 3, k_proc_address),
     (LIB_KRNL, 0x0BE): ("MmGetPhysicalAddress", 1, k_physical),
+    (LIB_KRNL, 0x0BF): ("MmIsAddressValid", 1, k_address_valid),
     (LIB_KRNL, 0x1D5): ("VdSetGraphicsInterruptCallback", 2, k_set_gfx_cb),
     (LIB_KRNL, 0x099): ("KeSetBasePriorityThread", 2, k_set_base_priority),
     (LIB_KRNL, 0x0BA): ("MmAllocatePhysicalMemoryEx", 6, k_alloc_physical),
@@ -1273,7 +1313,10 @@ def main():
     c.fs.write("hdd/The Static Rift/staticrift.ini", (
         "[General]\r\nEnabled = 1\r\nNotifications = 1\r\nSaveWrites = 1\r\nRememberPortal = 1\r\n"
         "[Controls]\r\nModifier = LB+RB\r\nHideComboFromGame = 1\r\n"
-        "[Startup]\r\nFigure1 = Spyro\r\n").encode())
+        "[Startup]\r\nFigure1 = Spyro\r\n"
+        # The menu walk-throughs below go folder by folder (Spyro, then Tree Rex); the order by
+        # type and My Picks get their own round at the end of the Dashlaunch run.
+        "[Menu]\r\nSortByType = 0\r\n").encode())
     spyro, tree_rex = figure(3), figure(9)
     c.fs.write("hdd/The Static Rift/Figures/Spyro.bin", spyro)
     c.fs.write("hdd/The Static Rift/Figures/Giants/Tree Rex.bin", tree_rex)
@@ -1665,6 +1708,144 @@ def main():
         check("Menu: pop-up menu ([Menu] FullScreenMenu = 0)" in log and len(c.boxes) > boxes,
               "FullScreenMenu = 0: LB+RB opens the console's pop-up menu")
         check(len(c.phys_allocs) == allocs and c.u32(current) == 0, "... and the full-screen menu stays closed")
+
+        print("order by type and My Picks (picks.ini, R3)")
+        ini = bytes(c.fs.read("hdd/The Static Rift/staticrift.ini")).decode()
+        ini = ini.replace("SortByType = 0", "SortByType = 1").replace("FullScreenMenu = 0", "FullScreenMenu = 1")
+        c.fs.write("hdd/The Static Rift/staticrift.ini", ini.encode())
+        c.fs.write("hdd/The Static Rift/picks.ini",
+                   b"; my picks\r\n[Trap Team]\r\nLife = Tree Rex\r\nMagic = Nobody, \r\n[Giants]\r\nTech = Spyro\r\n")
+        c.title_id = 0xFFFE07D1
+        c.put32(XEXEC_HANDLE_VAR, 0)
+        for _ in range(80):
+            c.run_thread(worker, 2)
+            log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+            if log.count("Title 41560911 ended") == 4:
+                break
+        c.build_game()
+        c.title_id = 0x41560911
+        c.put32(XEXEC_HANDLE_VAR, GAME_LDR)
+        c.run_thread(worker, 3)
+        present2(1)
+        present2(0)
+        draw, pin = c.threads[-2], c.threads[-1]
+        c.run_thread(draw, 2)
+        c.run_thread(pin, 2)
+        log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+        tail = log[log.rfind("Title now 41560911"):]
+        check("My Picks for Trap Team: 2 name(s) in picks.ini" in tail, "picks.ini: Trap Team's two names read")
+        check("Menu order: by type" in tail, "log: menu order by type")
+        c.pad["buttons"] = LB | RB
+        c.run_thread(worker, 2)
+        c.pad["buttons"] = 0
+        c.run_thread(worker, 2)
+        log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+        tail = log[log.rfind("Title now 41560911"):]
+        check("Menu opened (pad 0, 3 figures, on Tree Rex)" in tail,
+              "by type: the menu opens on Tree Rex (a Giant: gimmick Skylanders come first)")
+        R3 = 0x0080
+        c.pad["buttons"] = R3
+        c.run_thread(worker, 2)
+        c.pad["buttons"] = 0
+        c.run_thread(worker, 2)
+        log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+        tail = log[log.rfind("Title now 41560911"):]
+        check("Menu: My Picks (2 figures)" in tail and "Menu: 1 of 2 picks found for this game" in tail,
+              "R3: My Picks - Tree Rex and the trap (Spyro isn't a pick; 'Nobody' isn't a figure)")
+        lists = []
+        for _ in range(8):  # R3 again: each game's own figures, then everything
+            c.pad["buttons"] = R3
+            c.run_thread(worker, 2)
+            c.pad["buttons"] = 0
+            c.run_thread(worker, 2)
+            log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+            lists.append([l for l in log.splitlines() if l.startswith("Menu: ") and "figures)" in l][-1])
+            if "all figures" in lists[-1]:
+                break
+        for line in lists:
+            print("   log|", line)
+        check(lists == ["Menu: Spyro's Adventure figures (1 figures)", "Menu: Giants figures (1 figures)",
+                        "Menu: all figures (3 figures)"],
+              "R3 again: Spyro's Adventure's figure, Giants', then back to all figures (the trap is "
+              "in no game's folder)")
+        LB_RB_close = LB | RB
+        c.pad["buttons"] = LB_RB_close
+        c.run_thread(worker, 2)
+        c.pad["buttons"] = 0
+        c.run_thread(worker, 2)
+
+        print("Imaginators starts with another plugin's hook on its XexGetProcedureAddress import")
+        c.title_id = 0xFFFE07D1
+        c.put32(XEXEC_HANDLE_VAR, 0)
+        for _ in range(80):
+            c.run_thread(worker, 2)
+            log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+            if log.count("Title 41560911 ended") == 5:
+                break
+        check(log.count("Title 41560911 ended") == 5, "the picks game's exit finished")
+        check(c.xam_export(XAM_GETRAW) == export_address(LIB_XAM, XAM_GETRAW), "xam's exports untouched so far")
+        # The other plugin's hook: forwards to the kernel's XexGetProcedureAddress, like theirs do.
+        real_proc = export_address(LIB_KRNL, 0x197)
+        c.mu.mem_write(STEALTH_HOOK, struct.pack(">IIII", 0x3D600000 | (real_proc >> 16),
+                                                 0x616B0000 | (real_proc & 0xFFFF), 0x7D6903A6, 0x4E800420))
+        c.build_game(portal=False, proc_value=STEALTH_HOOK)
+        c.title_id = 0x41560930
+        c.put32(XEXEC_HANDLE_VAR, GAME_LDR)
+        c.run_thread(worker, 3)
+        present2(1)
+        present2(0)
+        log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+        tail = log[log.rfind("Title now 41560930"):]
+        for line in tail.splitlines():
+            print("   log|", line)
+        proc_var, proc_thunk = c.krnl_imports[0x197]
+        check(c.u32(proc_var) == STEALTH_HOOK, "the other plugin's hook stays in the game's import")
+        check("Game imports XexGetProcedureAddress: no" in tail and
+              f"1 game import(s) lead somewhere else (another plugin's hooks?): {STEALTH_HOOK:08X}" in tail,
+              "log: the redirected import is named")
+        check("pointing xam's exports at it instead" in tail and
+              "xam's portal exports now lead to the Static Rift (while this game runs)" in tail,
+              "log: xam's exports pointed at the Static Rift")
+        check(c.xam_export(XAM_GETRAW) == sym["sp_hook_get_raw_guest"] and
+              c.xam_export(XAM_SETRAW) == sym["sp_hook_set_raw_guest"], "xam's export table leads to the hooks")
+        print("game: looks the portal up through the other plugin's hook, then polls")
+        outp = STACKS + 0x8400
+        res = c.call(proc_thunk, [XAM_HANDLE, XAM_GETRAW, outp], game_stack, label="game XexGetProcedureAddress (via the other hook)")
+        getraw = c.u32(outp)
+        check(res == 0 and getraw == sym["sp_hook_get_raw_guest"], "the looked-up GetRaw is the Static Rift's")
+        res = c.call(proc_thunk, [XAM_HANDLE, XAM_SETRAW, outp], game_stack, label="game XexGetProcedureAddress (via the other hook)")
+        setraw = c.u32(outp)
+        check(res == 0 and setraw == sym["sp_hook_set_raw_guest"], "the looked-up SetRaw is the Static Rift's")
+        st, ln, buf = STACKS + 0x8100, STACKS + 0x8104, STACKS + 0x8200
+        frame = STACKS + 0x8000
+        c.mu.mem_write(frame, bytes([0x0B, 0x14]) + b"R" + bytes(29))
+        check(c.call(setraw, [32, frame], game_stack, label="game SetRaw (looked up)") == 0, "SetRaw 'R' reaches the Static Rift")
+        ready = False
+        for _ in range(12):
+            c.put32(st, 0xFFFF0000); c.put32(ln, 32)
+            res = c.call(getraw, [st, ln, buf], game_stack, label="game GetRaw (looked up)")
+            if res == 0 and c.u32(st) >> 16 == 1 and c.mem(buf, 3)[2:3] == b"R":
+                ready = True
+                break
+        check(ready, "the game gets the Static Rift's ready reply (no 'Portal Disconnected')")
+        print("Imaginators quits: xam's exports go back")
+        c.title_id = 0xFFFE07D1
+        c.put32(XEXEC_HANDLE_VAR, 0)
+        for _ in range(80):
+            c.run_thread(worker, 2)
+            log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+            if "Title 41560930 ended" in log:
+                break
+        check("Title 41560930 ended" in log and "xam's portal exports restored" in log, "log: exports restored at exit")
+        check(c.xam_export(XAM_GETRAW) == export_address(LIB_XAM, XAM_GETRAW) and
+              c.xam_export(XAM_SETRAW) == export_address(LIB_XAM, XAM_SETRAW), "xam's export table is back as it was")
+        c.mu.mem_write(frame, bytes([0x0B, 0x14]) + b"R" + bytes(29))
+        calls_before = c.calls.get("XamInputNonControllerSetRaw", 0)
+        c.allow_real_raw = True
+        c.call(setraw, [32, frame], game_stack, label="another title calls the old pointer")
+        c.allow_real_raw = False
+        check(c.calls.get("XamInputNonControllerSetRaw", 0) == calls_before + 1,
+              "no Skylanders game running: the hook hands the call to the real XAM function")
 
     print("DllMain(DLL_PROCESS_DETACH)")
     check(c.call(xex["entry"], [0xD11, 0, 0], game_stack, label="DllMain detach") == 1, "detach returns TRUE")

@@ -105,6 +105,13 @@ def toy_id(path):
     return d[0x10] | d[0x11] << 8
 
 
+def figure_of(path):
+    """(character id, variant id): dumps of the same figure release carry the same pair."""
+    with open(path, "rb") as f:
+        d = f.read(0x20)
+    return d[0x10] | d[0x11] << 8, d[0x1C] | d[0x1D] << 8
+
+
 def first_games(figures_dir):
     """{character id: first game (1-6) it works in}. Figures work in the game they came out with
     and every later one; a character re-released in a later game (Series 2, LightCores, Eon's
@@ -306,7 +313,7 @@ def element_for(parts, display, dolphin, villains):
             e = EL_INDEX.get(w.lower())
             if e:
                 return e
-    n = norm(display)
+    n = norm(re.sub(r"\(@[^)]*\)", "", display))  # not the maker's name: "(@echoseeker715)"
     best, best_len = 0, 0
     for table in (villains, {norm(k): v for k, v in SENSEIS.items()}, dolphin):
         for name, element in table.items():
@@ -417,8 +424,39 @@ def match_picture(stem, game_folder, by_folder, by_key_all, swappers, fuzzy=True
 
 
 # ---- card covers (preferred over the older pictures) ----
+#
+# The covers come from the Skylanders Image Generator (skylandersNFC/Skylanders-Image-Generator),
+# laid out as assets/<NN_Game>/<cards|coins>/<artist's set>/...; each artist names their files
+# their own way ("Mr Shadow's Chop Chop.jpg", "Sobersu's ZAP_series2_back.jpg",
+# "Adri-Dani_Clean/.../Polar Whirlwind/Adri-Dani's Polar_Whirlwind1.jpg", "Mirakel's
+# lightcore-chill.png"). Mr Shadow's cards come first wherever he drew the figure; the other
+# artists' cards fill the gaps (and win when theirs is the figure's exact release and his is only
+# the plain one), then the round coin art.
 
-COVER_PREFIX = re.compile(r"^(Mr Shadow's|SkylandersNFC's)\s+")
+CREATORS = ("Mr Shadow", "SkylandersNFC", "Adri-Dani", "Adrian", "Sobersu", "Dim", "LenLen",
+            "Cendrillion", "Mejoe", "Cha0s", "Mirakel", "fruitsnack", "Shizzy", "AlexDTI",
+            "IndominusRex")
+COVER_PREFIX = re.compile(r"^(%s)['’]s\s+" % "|".join(re.escape(c) for c in CREATORS), re.I)
+# Tiers: 0 = Mr Shadow's cards, 1 = the other artists' cards, 2 = coins. Within a tier, the
+# earlier set in these lists wins: the villain art first for villains, then the cards that look
+# most like Mr Shadow's.
+SHADOW_SETS = ("Mr_Shadow", "Mr_Shadow_SuperCharged")
+CARD_SETS = ("Dim_Logo", "SkylandersNFC_Logo", "Adri-Dani_Clean", "Sobersu_Logo", "LenLen_Logo",
+             "IndominusRex_Clean", "Cendrillion_Clean", "Mejoe_Logo", "Sobersu_Clean",
+             "Adrian_Pokemon")
+COIN_SETS = ("Cha0s_Logo", "Cha0s_Variants", "SkylandersNFC_Logo", "SkylandersNFC_Clean",
+             "Sobersu_Clean", "Fruitsnack_Clean", "Mirakel_Logo", "Mirakel_Clean", "Sobersu_Close")
+# Not figure pictures: card backs, stat cards, and Mr Shadow's blank Imaginator class frames.
+SKIP_SET = re.compile(r"(_Back$|_Stats$|^Back_Covers|^Mr_Shadow_Crystals$)")
+# Words the artists add after the name: "_back", "_logo_v2", "_300dpi", "_coin", Sobersu's
+# "_giant", Imaginator battle classes ("GOLDIE_knight")...
+CARD_WORDS = {"back", "logo", "v2", "300dpi", "clean", "coin", "icon", "villain", "promo",
+              "artwork", "giant", "sidekick", "mini", "bazooker", "bowslinger", "brawler",
+              "knight", "ninja", "quickshot", "quickshooter", "sentinel", "smasher", "sorcerer",
+              "swashbuckler"}
+# Folders that hold cards but aren't named after a figure.
+CARD_FOLDERS = {"cards", "coins", "chase", "superchargers", "crystals", "covers", "air vehicles",
+                "land vehicles", "sea vehicles", "supercharged", "traps", "elements", "variants"}
 # Trap Team's villain-variant dumps are named after the villain; their cards after the trap.
 COVER_ALIASES = {
     "redhottusslesprout": "earthtotemredhotspinningsandstorm",
@@ -427,16 +465,76 @@ COVER_ALIASES = {
     "rebellobgoblin": "lightrocketrebelshiningship",
     "steampunkshrednaught": "techflyinghelmetsteampunkmakersmana",
     "outlawbrawlandchain": "waterlogholderoutlawwetwalter",
-    "december": "ember", "doubletrouble15": "doubletrouble",
 }
+# Card names that differ from the dump names.
+CARD_ALIASES = {
+    "pepperjack": "chefpepperjack", "drkrankase": "drkrankcase", "hbbstarcast":
+    "happybirthdaybenstarcast", "crystalclearstarcast": "clearstarcast",
+}
+# Only when nothing closer is found: Dec-Ember -> Ember's card.
+FUZZY_ALIASES = {"december": "ember", "doubletrouble15": "doubletrouble"}
+
+
+def card_names(rel, set_name):
+    """The names a cover file stands for, from its folder (sets that keep each card in a folder
+    named after the figure) or its file name without the artist's prefix and suffix words."""
+    stem = os.path.splitext(rel[-1])[0]
+    s = COVER_PREFIX.sub("", stem.replace("’", "'"))
+    s = re.sub(r"^(Vehicle )?Supercharged\s+", "", s, flags=re.I)
+    if set_name.startswith("Mr_Shadow"):
+        return [s]
+    words = [w for w in re.split(r"[\s_]+|(?<=[a-z0-9])-(?=[a-z])", s) if w]
+    lc, series, half = False, "", ""
+    while words:  # trailing words: "_lc", "_series2", "_mini_logo_v2", "-bottom"
+        w = words[-1].lower()
+        if w in CARD_WORDS:
+            words.pop()
+        elif w in ("lc", "lightcore"):
+            words.pop()
+            lc = True
+        elif re.fullmatch(r"series\d", w):
+            series = w[-1]
+            words.pop()
+        elif w in ("top", "bottom") and not half:
+            half = words.pop().capitalize()
+        else:
+            break
+    if words and words[0].lower() in ("lc", "lightcore"):  # Mirakel's "lightcore-chill"
+        words.pop(0)
+        lc = True
+    if len(words) > 2 and words[0].lower() == "series" and words[1].isdigit():  # "series-2-zap"
+        series = words[1]
+        words = words[2:]
+    name = " ".join(words)
+    parent = strip_prefix(rel[-2]) if len(rel) >= 2 else ""
+    if (parent and not re.match(r"^\d+[).]", rel[-2]) and parent.lower() not in EL_INDEX
+            and parent.lower() not in CARD_FOLDERS and parent != set_name):
+        name = parent  # the folder is the figure's clean name ("Polar Whirlwind")
+        if half and not name.lower().endswith(half.lower()):
+            name += " " + half
+        return [name]
+    if half:
+        name += " " + half
+    if series:
+        name += f" (Series {series})"
+    if lc:
+        name += " LightCore"
+    out = [name]
+    m = re.match(r"(\w+) trap (.+)$", name, re.I)  # Sobersu's "earth trap_EASTER BUNNY"
+    if m and m.group(1).lower() in EL_INDEX:
+        out += [f"{m.group(2)} {m.group(1)} Trap", f"{m.group(1)} {m.group(2)}"]
+    if re.match(r"the ", name, re.I):  # Dim's "the-gulper"
+        out.append(name[4:])
+    if re.search(r"[a-z]Trap$", name):  # Adri-Dani's "AirHourglassTrap"
+        out.append(name[:-4])
+    return out
 
 
 def index_covers(dirs):
-    """{game: {key: [(landscape, folder keys, file)]}} for card pictures laid out by game
-    ("01_Spyro/...", "1. Spyro's Adventure/..."). Names lose the card set's "Mr Shadow's " prefix;
-    a trap card naming its villain ("Dark Spider (Shadow Spider) [Eye Scream]") is found by the
-    trap and by the villain. Landscape cards (SuperCharged vehicles) only stand in when there is
-    no portrait card of the figure."""
+    """{game: {key: [(tier, rank, landscape, folder keys, file)]}} for the cover pictures laid out
+    by game ("01_Spyro/...", "1. Spyro's Adventure/..."). A trap card naming its villain ("Dark
+    Spider (Shadow Spider) [Eye Scream]") is found by the trap and by the villain. Landscape cards
+    (SuperCharged vehicles) only stand in when there is no portrait card of the figure."""
     covers = {}
     for d in dirs:
         for root, dirs_, files in os.walk(d):
@@ -449,18 +547,31 @@ def index_covers(dirs):
                 if not m:
                     continue
                 game = int(m.group(1))
-                name = COVER_PREFIX.sub("", os.path.splitext(f)[0])
-                name = re.sub(r"^(Vehicle )?Supercharged\s+", "", name)
+                kind, set_name = "cards", "Mr_Shadow"  # a plain folder of cards: like his
+                if len(rel) > 3 and rel[1] in ("cards", "coins"):
+                    kind, set_name = rel[1], rel[2]
+                if SKIP_SET.search(set_name):
+                    continue
+                if kind == "coins":
+                    tier, order = 2, COIN_SETS
+                elif set_name in SHADOW_SETS:
+                    tier, order = 0, SHADOW_SETS
+                else:
+                    tier, order = 1, CARD_SETS
+                rank = order.index(set_name) if set_name in order else len(order)
                 with Image.open(os.path.join(root, f)) as im:
                     landscape = im.width > im.height
-                folders = [norm(strip_prefix(p)) for p in rel[1:-1]]
-                plain = re.sub(r"\s*\[[^\]]*\]", "", name)
-                keys = [norm(name), norm(plain)]
-                keys += [norm(b) for b in re.findall(r"\[([^\]]*)\]", name)]
-                keys.append(norm(re.sub(r"\s*\([^)]*\)", "", plain)))  # "Cynder (Series 2)"
-                for k in dict.fromkeys(keys):
+                folders = {norm(strip_prefix(p)) for p in rel[1:-1]}
+                keys = []
+                for name in card_names(rel, set_name):
+                    plain = re.sub(r"\s*\[[^\]]*\]", "", name)
+                    keys += [norm(name), norm(plain)]
+                    keys += [norm(b) for b in re.findall(r"\[([^\]]*)\]", name)]
+                    keys.append(norm(re.sub(r"\s*\([^)]*\)", "", plain)))  # "Cynder (Series 2)"
+                keys = [CARD_ALIASES.get(k, k) for k in keys]
+                for k in dict.fromkeys(k for k in keys if k):
                     covers.setdefault(game, {}).setdefault(k, []).append(
-                        (landscape, folders, os.path.join(root, f)))
+                        (tier, rank, landscape, folders, os.path.join(root, f)))
     return covers
 
 
@@ -480,12 +591,13 @@ def cover_names(stem, parts):
     return list(dict.fromkeys(out))
 
 
-def match_cover(stem, parts, game, covers, fuzzy=False, other_games=False):
-    """The card for a dump, from its own game's cards, or with other_games from the other
-    games' (nearest earlier game first: a Giants chase variant of a Spyro's Adventure figure)."""
+def match_cover(stem, parts, game, covers, tier, fuzzy=False, other_games=False):
+    """The cover for a dump from one tier (0 Mr Shadow's cards, 1 other cards, 2 coins), from its
+    own game's covers, or with other_games from the other games' (nearest earlier game first: a
+    Giants chase variant of a Spyro's Adventure figure)."""
     if other_games:
         for g in list(range(game - 1, 0, -1)) + list(range(game + 1, 7)):
-            hit = match_cover(stem, parts, g, covers, fuzzy)
+            hit = match_cover(stem, parts, g, covers, tier, fuzzy)
             if hit:
                 return hit
         return None
@@ -495,13 +607,16 @@ def match_cover(stem, parts, game, covers, fuzzy=False, other_games=False):
     names = cover_names(stem, parts)
     if fuzzy:
         names = [n for s in dropped_variants(stem) for n in cover_names(s, parts[:-1] + [s])]
-    folders = [norm(strip_prefix(p)) for p in parts[1:-1]]
+    folders = {norm(strip_prefix(p)) for p in parts[1:-1]}
     for n in names:
         k = norm(n)
-        hits = table.get(COVER_ALIASES.get(k, k)) or table.get(k)
-        if hits:
-            best = min(hits, key=lambda h: (h[0], -sum(a == b for a, b in zip(h[1], folders))))
-            return best[2]
+        keys = [COVER_ALIASES.get(k, k), k]
+        if fuzzy and k in FUZZY_ALIASES:
+            keys.append(FUZZY_ALIASES[k])
+        for key in dict.fromkeys(keys):
+            hits = [h for h in table.get(key, ()) if h[0] == tier]
+            if hits:
+                return min(hits, key=lambda h: (h[2], h[1], -len(h[3] & folders)))[4]
     return None
 
 
@@ -527,7 +642,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--saves", default="")
     ap.add_argument("--covers", action="append", default=[],
-                    help="card pictures by game folder, preferred over --images (repeatable)")
+                    help="the Skylanders Image Generator's assets folder (cards and coins by game "
+                         "and artist), preferred over --images (repeatable)")
     args = ap.parse_args()
     out = os.path.join(args.out, "The Static Rift")
     shutil.rmtree(out, ignore_errors=True)
@@ -584,7 +700,54 @@ def main():
     covers = index_covers(args.covers)
     unmatched = []
     taken_by_dir = {}
+
+    # Pictures, best first. Exact names: Mr Shadow's card from the figure's own game, a picture
+    # kept beside the dump (the pack's premade creations), another artist's card from the own
+    # game (a Trap Team villain as caught, not its Imaginators Sensei figure), Mr Shadow's then
+    # the others' cards from other games, coin art; then the picture of another dump that is
+    # the same figure (same character and variant id: the Error Bypass dumps are Heartbreaker
+    # Buckshots); then the older pictures; then all of those again with variant words dropped
+    # ("Gold Chop Chop" -> "Chop Chop").
+    def picture_for(game, parts, phase):
+        stem = os.path.splitext(parts[-1])[0].strip()
+        src = os.path.join(args.pack, *parts)
+        game_folder = pic_folder_for_game.get(game, "")
+        old = lambda fuzzy: match_picture(stem, game_folder, by_folder, by_key_all, swappers, fuzzy)
+        cov = lambda tier, fuzzy=False, other=False: match_cover(stem, parts, game, covers, tier,
+                                                                 fuzzy, other)
+        if phase == 0:
+            finds = (("card", lambda: cov(0)), ("side", lambda: side_picture(src)),
+                     ("alt", lambda: cov(1)), ("card*", lambda: cov(0, other=True)),
+                     ("alt*", lambda: cov(1, other=True)), ("coin", lambda: cov(2)),
+                     ("coin*", lambda: cov(2, other=True)))
+        else:
+            finds = (("same", lambda: same_figure.get(figure_of(src))), ("old", lambda: old(False)),
+                     ("card~", lambda: cov(0, True)), ("card*~", lambda: cov(0, True, True)),
+                     ("alt~", lambda: cov(1, True)), ("alt*~", lambda: cov(1, True, True)),
+                     ("coin~", lambda: cov(2, True)), ("old~", lambda: old(True)))
+        for kind, find in finds:
+            pic = find()
+            if pic:
+                return pic, kind
+        return None, ""
+
+    chosen = [picture_for(game, parts, 0) for game, parts in dumps]
+    same_figure = {}  # (character id, variant id) -> the picture its exactly-named dumps use
+    for (game, parts), (pic, kind) in zip(dumps, chosen):
+        if pic:
+            same_figure.setdefault(figure_of(os.path.join(args.pack, *parts)), pic)
+    chosen = [c if c[0] else picture_for(game, parts, 1) for (game, parts), c in zip(dumps, chosen)]
+    # Elements the name doesn't give: the same character's element from its other dumps.
+    char_elements = {}
     for game, parts in dumps:
+        display = re.sub(r"\s*\(Series \d\)", "", os.path.splitext(parts[-1])[0].strip().replace("’", "'"))
+        e = element_for(parts, display.strip(), dolphin, villains)
+        if e:
+            t = toy_id(os.path.join(args.pack, *parts))
+            char_elements.setdefault(t, {}).setdefault(e, 0)
+            char_elements[t][e] += 1
+
+    for (game, parts), (pic, kind) in zip(dumps, chosen):
         # Console-safe path.
         new_parts = []
         for i, p in enumerate(parts):
@@ -606,23 +769,13 @@ def main():
         stem = os.path.splitext(parts[-1])[0].strip()
         display = re.sub(r"\s*\(Series \d\)", "", stem.replace("’", "'")).strip()
         element = element_for(parts, display, dolphin, villains)
+        # The character's element from its other dumps when the name gives none ("UID_1B83F42A_
+        # Error Bypass" is a Buckshot); creation crystals (ids 680-689, one per element) always.
+        toy = toy_id(src)
+        if not element or 680 <= toy <= 689:
+            counts = char_elements.get(toy, {})
+            element = max(counts, key=counts.get) if counts else element
         series = series_for(parts, display)
-        # Pictures, best first: the card covers, a picture kept beside the dump, another game's
-        # card, the older pictures by name, then cards and older pictures with variant words
-        # dropped ("Gold Chop Chop" -> "Chop Chop").
-        game_folder = pic_folder_for_game.get(game, "")
-        old = lambda fuzzy: match_picture(stem, game_folder, by_folder, by_key_all, swappers, fuzzy)
-        pic, kind = None, ""
-        for kind, find in (("card", lambda: match_cover(stem, parts, game, covers)),
-                           ("side", lambda: side_picture(src)),
-                           ("card*", lambda: match_cover(stem, parts, game, covers, other_games=True)),
-                           ("old", lambda: old(False)),
-                           ("card~", lambda: match_cover(stem, parts, game, covers, fuzzy=True)),
-                           ("card*~", lambda: match_cover(stem, parts, game, covers, True, True)),
-                           ("old~", lambda: old(True))):
-            pic = find()
-            if pic:
-                break
         pic_rel = "-"
         if pic:
             if kind.startswith("old"):
@@ -638,10 +791,18 @@ def main():
                 report.append(f"picture ({kind}): {'/'.join(parts)} <- {os.path.basename(pic)}")
             pic_rel = converted.get(pic)
             if not pic_rel:
-                name = COVER_PREFIX.sub("", os.path.splitext(os.path.basename(pic))[0])
+                name = os.path.splitext(os.path.basename(pic))[0]
+                # Other artists' files are named after the figure ("Blue Bash", not "Cha0s's Blue
+                # Bash Logo v2"); Mr Shadow's and SkylandersNFC's keep their card names.
+                keep = name.startswith(("Mr Shadow", "SkylandersNFC")) or kind in ("side", "old", "old~")
+                name = COVER_PREFIX.sub("", name) if keep else display
                 taken = taken_pics.setdefault(label, set())
-                pic_rel = fatx(label, False, set()) + "\\" + fatx(name, False, taken) + ".qoi"
-                im = Image.open(pic).convert("RGB")
+                # The extension counts toward the console's 42-character limit too.
+                pic_rel = fatx(label, False, set()) + "\\" + fatx(name + ".qoi", True, taken)
+                im = Image.open(pic).convert("RGBA")
+                if im.getextrema()[3][0] < 255:  # a round coin: on the menu's panel colour
+                    im = Image.alpha_composite(Image.new("RGBA", im.size, (10, 20, 48, 255)), im)
+                im = im.convert("RGB")
                 im.thumbnail((320, 320), Image.LANCZOS)
                 save_qoi(im, os.path.join(out, "Images", *pic_rel.split("\\")))
                 converted[pic] = pic_rel
@@ -662,15 +823,20 @@ def main():
 
     add_first_games(out)
     build_ui(args.images, out)
+    # The console's file system (FATX) can't hold a name over 42 characters: FileZilla and
+    # Aurora skip such a file, so none may slip through.
+    too_long = [os.path.join(r, n) for r, ds, fs in os.walk(out) for n in ds + fs if len(n) > 42]
+    if too_long:
+        sys.exit("names over 42 characters:\n" + "\n".join(too_long))
     report += [f"no picture: {u}" for u in unmatched]
-    all_covers = {h[2] for g in covers.values() for hs in g.values() for h in hs}
+    all_covers = {h[4] for g in covers.values() for hs in g.values() for h in hs if h[0] == 0}
     unused = sorted(all_covers - used_pics)
     report += [f"card not used: {u}" for u in unused]
     with open(os.path.join(args.out, "report.txt"), "w") as f:
         f.write("\n".join(report) + "\n")
     print(f"{len(dumps)} dumps, {len(converted)} pictures, {len(unmatched)} without a picture; "
           f"figures by picture source: {stats}; {len(all_covers) - len(unused)} of "
-          f"{len(all_covers)} cards used")
+          f"{len(all_covers)} of Mr Shadow's cards used")
 
 
 def build_ui(images_dir, out):

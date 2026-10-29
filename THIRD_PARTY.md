@@ -106,7 +106,8 @@ up in the generated `UI\figures.idx`; no Dolphin code is included in the plugin 
 ## Pictures, logos and backgrounds
 
 The release package's figure pictures come from SkylandersNFC's Skylanders Image Generator
-(card art by Mr Shadow, and SkylandersNFC's logo cards) and the Skylanders Ultimate NFC Pack
+(card art by Mr Shadow, with cards and coin art by SkylandersNFC, Dim, IndominusRex, Sobersu,
+Cha0s and fruitsnack where he has no card of a figure) and the Skylanders Ultimate NFC Pack
 (premade creation pictures). The game logos, element icons and portal background come from the
 project owner's image collection. All are converted to QOI by `tools/mkassets.py` and aren't
 in this source tree. See [CREDITS.md](CREDITS.md). Skylanders and its artwork are trademarks
