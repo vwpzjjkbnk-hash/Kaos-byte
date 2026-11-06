@@ -1,0 +1,301 @@
+PROJECT KAOS-BYTE4.1.0v - THE STATIC RIFT (build XII)
+A virtual Portal of Power for the six Xbox 360 Skylanders games.
+You do NOT need a real portal. The Static Rift is the portal.
+=============================================================================
+
+
+1. WHICH DOWNLOAD DO I NEED?
+----------------------------
+On the GitHub page, click "Releases" (on the right), open the newest
+release and look under "Assets". Download ONE of these:
+- Kaos-Byte4.1.0v-Release.zip ........ consoles with PEER PRESSURE
+                                     (with the phone remote, see 7)
+- Kaos-Byte4.1.0v-RGH-Release.zip .... RGH, JTAG, or BADUPDATE + XeUnshackle
+                                     (anything that runs Dashlaunch plugins;
+                                     with the phone remote too, see 7)
+Do NOT download "Source code" or use the green "Code" button: that's the
+code for building the plugin, not the plugin itself (there's no Plugins
+folder in it).
+Already installed an older version? The small Update zips (no pictures)
+are all you need: see 5.
+
+You put NOTHING inside your game's folder. The plugin goes in its own
+folder on the hard drive, and the game finds it from there.
+
+
+2. CONNECTING WITH FILEZILLA (FIRST TIME)
+-----------------------------------------
+FileZilla copies files from your PC to the Xbox over your home network.
+1. Install "FileZilla Client" (free, filezilla-project.org) on your PC.
+2. Turn on the Xbox and go to your homebrew dashboard (Aurora, FSD...):
+   its FTP server only runs while the dashboard is up. The PC and the
+   Xbox must be on the same network (Wi-Fi or cable).
+3. Find the Xbox's IP address (it looks like 192.168.1.23). Aurora shows
+   it on its main screen. Or on the Xbox: Settings > System > Network
+   Settings > your network > Configure Network.
+4. In FileZilla, fill in the "Quickconnect" bar at the top:
+     Host ........ the Xbox's IP address
+     Username .... xboxftp   (Aurora; on FSD and most others: xbox)
+     Password .... xboxftp   (Aurora; on FSD and most others: xbox)
+     Port ........ 21
+   and click Quickconnect.
+5. Now the window has two sides:
+     LEFT = your PC                RIGHT = the Xbox
+   On the right you'll see drives like Hdd1, Usb0 and Flash. Hdd1 is the
+   hard drive. Never change anything in Flash.
+6. To copy something TO the Xbox, drag it from the left side to the right.
+   To copy something FROM the Xbox (like launch.ini or a log), drag it
+   from the right side to the left.
+7. The bottom of the window shows the copying. Wait until "Queued files"
+   is empty. If the "Failed transfers" tab lists anything, right-click in
+   it, choose to requeue all the files, and let them copy again.
+
+
+3. INSTALL - PEER PRESSURE
+--------------------------
+1. On your PC, right-click Kaos-Byte4.1.0v-Release.zip and choose
+   "Extract All". Open the new Kaos-Byte4.1.0v folder: inside it are two
+   folders, PeerPressure and The Static Rift (and this file).
+2. In FileZilla, on the LEFT side, go into that Kaos-Byte4.1.0v folder.
+3. On the RIGHT side, double-click Hdd1 so you're inside it.
+4. On the left, click PeerPressure, hold Ctrl and click The Static Rift,
+   then drag both onto the right side. If FileZilla asks about files that
+   already exist, choose Overwrite. It's about 2,100 files: give it a few
+   minutes.
+5. Check: on the right you should now have Hdd1\PeerPressure\SideLoading
+   with KaosByte.xex and six .ini files in it, and Hdd1\The Static Rift.
+6. Start a Skylanders game. You'll see "The Static Rift is open".
+
+
+4. INSTALL - RGH / JTAG / BADUPDATE (DASHLAUNCH)
+------------------------------------------------
+1. On your PC, right-click Kaos-Byte4.1.0v-RGH-Release.zip and choose
+   "Extract All". Open the new Kaos-Byte4.1.0v-RGH folder: inside it are
+   two folders, Plugins and The Static Rift (and this file). The plugin
+   itself, KaosByteDSL.xex, is inside Plugins.
+2. In FileZilla, on the LEFT side, go into that Kaos-Byte4.1.0v-RGH folder.
+3. On the RIGHT side, double-click Hdd1 so you're inside it.
+4. On the left, click Plugins, hold Ctrl and click The Static Rift, then
+   drag both onto the right side. (Already have a Plugins folder? The new
+   file is just added to it.) It's about 2,100 files: give it a few
+   minutes.
+5. Tell Dashlaunch to load the plugin. Dashlaunch reads a file called
+   launch.ini. Which one:
+     RGH / JTAG ...... launch.ini at the top of Hdd1.
+     BadUpdate ....... launch.ini on your BadUpdate USB stick (Usb0 on the
+                       right side). The one on the hard drive is NOT read.
+                       Also drag the Plugins folder onto Usb0.
+   a. Drag launch.ini from the right side to the left (copies it to your
+      PC).
+   b. On your PC, right-click launch.ini > Open with > Notepad.
+   c. Find the line [Plugins]. Under it, add ONE line, using the first
+      number that isn't used yet (plugin1 to plugin5). Don't change the
+      lines that are already there.
+        RGH / JTAG:  plugin1 = Hdd:\Plugins\KaosByteDSL.xex
+        BadUpdate:   plugin1 = Usb:\Plugins\KaosByteDSL.xex
+      Type it exactly like that: a space on each side of the = sign, and
+      "Hdd:" (not "Hdd1:") - that's how Dashlaunch names the hard drive.
+   d. Save it (Ctrl+S). Drag launch.ini from the left side back to the
+      same place on the right, and choose Overwrite.
+6. Restart the console (BadUpdate: run BadUpdate + XeUnshackle again).
+7. Start a Skylanders game. You'll see "The Static Rift is open".
+
+
+5. UPDATING FROM AN OLDER VERSION
+---------------------------------
+Use the Update zip (no menu pictures or figures):
+  Kaos-Byte4.1.0v-Update.zip ........ Peer Pressure (about 7 MB: it
+                                      brings the phone remote's small
+                                      pictures, The Static Rift\Phone)
+  Kaos-Byte4.1.0v-RGH-Update.zip .... RGH / JTAG / BadUpdate (the same,
+                                      with the plugin in Plugins)
+Drag its folders onto the root of Hdd1 and choose Overwrite. It has the
+plugin, The Static Rift\UI and The Static Rift\Phone. Your settings
+(staticrift.ini), pictures, figures, saves, picks.ini, nicknames and lists
+(nicknames.ini, lists.ini) stay as they are.
+  - Coming from Kaos-Byte2.0v? Also delete the old plugin:
+      Peer Pressure: Kaos-Byte2.0v.xex in Hdd1\PeerPressure\SideLoading
+      RGH/BadUpdate: Kaos-Byte2.0v-RGH.xex, and change your launch.ini
+                     line to KaosByteDSL.xex (see 4, step 5)
+  - Figures with no picture? Copy The Static Rift\Images from the full
+    zip once.
+
+
+6. USING IT
+-----------
+When the game starts you'll see "The Static Rift is open".
+Tap LB + RB to open the menu. Tap it again (or press Back) to close it.
+The game pauses while the menu is open and carries on when you close it.
+The Xbox Guide button closes the menu (the Guide opens as normal).
+
+  D-pad left/right .... previous / next figure (hold to scroll)
+  D-pad up/down ....... previous / next section (like "Skylanders / Magic")
+  LT / RT ............. jump back / forward 10 figures
+  A ................... put the figure on the Rift
+  Y ................... swap in (replaces the figure of the same kind)
+  B ................... take the figure off
+  X ................... clear the Rift
+  START ............... give the figure a nickname (see below)
+  R3 (click stick) .... next list: ALL -> FAVORITES and your own lists
+                        (made on the phone, see 7) -> MY PICKS -> one
+                        game at a time (Spyro's Adventure, Giants...)
+                        -> ALL again
+
+The three lists (the hint at the bottom says which one R3 goes to next):
+  ALL ......... every figure the game you're playing can use, by type:
+                gimmick Skylanders, Skylanders, creation crystals, traps,
+                vehicles, magic items, adventure packs; then by element,
+                then A to Z.
+  MY PICKS .... your rosters from picks.ini (see 8), then every crystal,
+                trap, vehicle, magic item and adventure pack.
+  ONE GAME .... only the figures that came out in that game, sorted
+                like ALL.
+  FAVORITES and YOUR LISTS .... the ones you made on the phone, in the
+                order you added the figures (only lists with figures in
+                them).
+
+NICKNAMES: press START on a figure and a keyboard comes up.
+  D-pad ........ move around the keys
+  A ............ type the key (DEL deletes, CAPS for capitals, DONE saves)
+  B ............ delete a letter        X ...... space
+  Y ............ capitals on / off      START .. save
+  BACK ......... cancel
+Up to 20 letters. The nickname shows under the figure's name, on the TV
+and on the phone. Save it empty to take it away. Nicknames are kept in
+The Static Rift\nicknames.ini; the figure's own file isn't changed.
+
+Game progress is saved back into the figure file (a backup is kept in
+The Static Rift\Backups).
+
+
+7. THE PHONE REMOTE
+------------------
+Pick figures from your phone (or a tablet or a PC) while you play.
+1. Your phone has to be on the same Wi-Fi as the Xbox.
+2. Start a Skylanders game. About 10 seconds in, a pop-up says
+   "Phone remote: open http://192.168.1.23" (your Xbox's address).
+   The address also shows under THE STATIC RIFT at the top of the menu.
+3. Type that address into your phone's browser (Safari, Chrome...).
+   Tip: "Add to Home Screen" makes it open like an app next time.
+
+On the page:
+  ON THE RIFT ...... what's on the portal. The X takes one off; "Clear
+                     all" (tap it twice) empties the portal.
+  Search ........... type part of a name (or of a nickname).
+  All / My Picks /
+  the games ........ the same lists as the menu on the TV.
+  Tap a figure ..... Put on the Rift, Swap in or Take off, and:
+                     - its nickname: tap "+ Add a nickname" under its
+                       name (or the nickname, to change or remove it).
+                       It shows on each card between the name and the
+                       series / game, and on the TV.
+                     - Favorite: the star. Favorites get their own tab
+                       (and a star on their card).
+                     - Lists: put it in your own lists, or make a new
+                       one with it in it.
+  + New list ....... (at the end of the tabs) make a list of your own:
+                     a roster, a speedrun, anything. Each list gets its
+                     own tab, with Rename and Delete at the top.
+  Quick tap ........ (the lightning button, next to Clear all) for
+                     speedruns: one tap on a figure swaps it in at
+                     once, no details screen. Hold a figure (or
+                     right-click on a PC) to see its details. Your
+                     phone remembers it.
+  The dot at the top: green = connected, yellow = reconnecting (a
+                     second or two), red = not connected.
+
+- It only works while a Skylanders game is running (it starts with the
+  game and stops when you quit).
+- It stays on your home network: nothing goes on the internet, there's
+  nothing to install and nothing to pay for.
+- The game doesn't pause for the phone, and the LB+RB menu on the TV keeps
+  working too. Whatever you do on either one shows on both, straight away.
+- Favorites and your lists show in the TV menu too (R3), and nicknames
+  given on the TV show on the phone. They're kept in
+  The Static Rift\lists.ini and nicknames.ini (updates never touch
+  them).
+- The page keeps one live connection and mends it by itself: after a
+  Wi-Fi hiccup, or coming back from the lock screen, it catches up on
+  its own. It's made to work in any phone browser (Safari, Chrome,
+  Firefox, Samsung Internet...).
+- The phone gets small copies of the card art from The Static Rift\Phone
+  (both zips have them). A figure picture you added yourself still shows,
+  it just loads slower; tools/mkphone.py (in the source) makes small
+  copies of new pictures.
+
+
+8. MY PICKS (YOUR ROSTERS)
+--------------------------
+Your rosters live in The Static Rift\picks.ini. Open it in Notepad.
+One section (roster) per game, names separated by commas:
+
+  [Giants]
+  Tech = Legendary Bouncer, Drobot (series 2)
+
+- My Picks shows the roster of the game you're playing first, then the
+  earlier games' rosters. In Imaginators: Imaginators, SuperChargers,
+  Trap Team, Swap Force, Giants, then Spyro's Adventure. In Spyro's
+  Adventure: only that roster. The heading says whose roster you're in.
+- Each roster is sorted like ALL.
+- A SuperCharger you pick brings its vehicle.
+- After the rosters: every creation crystal, trap, vehicle, magic item and
+  adventure pack the game can use.
+- Put a game in front to pick that game's release:
+      Trap Team Eon's Elite Chop Chop
+- Put a series after to pick that series:  Drobot (series 2)
+- Small spelling mistakes are OK.
+
+
+9. SETTINGS
+-----------
+Edit The Static Rift\staticrift.ini in Notepad. Changes apply the next time
+you start a Skylanders game.
+
+  PauseGame = 0 ............ keep the game running behind the menu
+  FullScreenMenu = 0 ....... use the plainer pop-up menu instead
+  SortByType = 0 ........... list figures folder by folder
+  NewestOnly = 1 ........... ALL shows only each Skylander's newest release
+  OnlyCompatible = 0 ....... show figures from later games too
+  Modifier = LB+RB ......... the buttons that open the menu
+  SwapGapMs = 150 .......... Swap in's pause between the old figure
+                             coming off and the new one going on, in
+                             milliseconds (0 = as fast as the game
+                             takes it; raise it if a game ever hangs
+                             right after a swap)
+  [Remote] Enabled = 0 ..... turn the phone remote off
+  [Remote] Port = 80 ....... its port (if 80 is taken it uses 8080, and
+                             the pop-up shows the address with :8080)
+
+
+10. YOUR OWN FIGURES
+--------------------
+Put any 1 KB figure dump (.dump or .bin) anywhere inside
+The Static Rift\Figures and it shows up in the menu.
+File names must be 42 characters or shorter (Xbox limit).
+
+
+11. IF SOMETHING GOES WRONG
+---------------------------
+- The phone can't open the page:
+    Wait for the "Phone remote" pop-up first (about 10 seconds into the
+    game). Type the address exactly, with http:// in front. The phone has
+    to be on your home Wi-Fi (not mobile data, not a guest network). Some
+    routers stop devices from talking to each other ("AP isolation" or
+    "client isolation" in the router's settings): turn that off. Still
+    nothing? Send staticrift.log (the lines starting "Phone remote:").
+- The phone page says "Not connected":
+    The game has to be running (the remote stops at the dashboard) and
+    the phone has to be on the same Wi-Fi. It reconnects by itself once
+    it can reach the Xbox; reloading the page works too.
+- No "The Static Rift is open" message:
+    Peer Pressure: check KaosByte.xex and the six .ini files are in
+      Hdd1\PeerPressure\SideLoading.
+    Dashlaunch: check the launch.ini line (right file, right path, "Hdd:",
+      a space around =, a free plugin number) and that you restarted.
+- "Portal Disconnected" (RGH/JTAG): another plugin may be hooking the game
+    first. This version works around that by itself. If it still happens, or
+    for anything else:
+    Quit the game back to the dashboard (don't restart), then send
+    Hdd1\The Static Rift\staticrift.log
+    (after a crash or freeze, send staticrift-previous.log too).
+    Say which download you used and which game you tested.

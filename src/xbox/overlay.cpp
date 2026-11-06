@@ -84,7 +84,13 @@ volatile LONG g_game_prev_valid = 0;
 // Pausing the game (the menu borrows its two front buffers when there's no memory for its own):
 // the game's render thread waits inside its next VdSwap call until the menu closes.
 volatile LONG g_pause_req = 0, g_paused = 0;
+volatile DWORD g_paused_tick = 0;  // when the game last stopped (it's stopped while g_paused)
 bool g_allow_pause = true;
+// [Menu] PauseGame: the game also stops behind the menu's own frames (every game, not only the
+// ones short of memory). It waits in VdSwap the same way; the menu is on screen through the
+// scan-out thread, which doesn't need the game's frames.
+bool g_always_pause = true;
+bool g_paused_own = false;  // paused behind the menu's own frames (this open)
 volatile DWORD g_game_seq = 0;    // odd while the recorder is writing g_game
 volatile LONG g_game_valid = 0;
 volatile DWORD g_swaps = 0;
@@ -498,6 +504,17 @@ void ResumeGame() {
   sp_menu_current = 0;
   __sync();
   g_pause_req = 0;
+  g_paused_own = false;
+}
+
+// [Menu] PauseGame with the menu's own frames: the game stops at its next frame (no waiting
+// here: the menu shows at once, and a game on a loading screen stops when it next presents).
+void PauseBehindMenu() {
+  if (!g_always_pause || g_borrowed || g_paused_own) return;
+  g_paused_own = true;
+  __sync();
+  g_pause_req = 1;
+  __sync();
 }
 
 // Pauses the game at its next frame and takes its two front buffers. The one it was about to
@@ -867,6 +884,7 @@ DWORD WINAPI DrawThread(LPVOID) {
       if (g_want_open && !g_borrowed) {
         g_state = 1;
         drawn_version = 0xFFFFFFFF;  // reopen with the surfaces still allocated
+        PauseBehindMenu();
       } else if (g_want_open) {
         // Reopened while closing from the game's frames: the game has resumed, so start over.
         FreeAll();
@@ -888,7 +906,7 @@ DWORD WINAPI DrawThread(LPVOID) {
       sp_menu_current = 0;
       sp_pin_phys = 0;
       __sync();
-      if (g_borrowed) ResumeGame();  // the game carries on and presents its next frame
+      if (g_borrowed || g_paused_own) ResumeGame();  // the game carries on: its next frame
       close_swap = g_swaps;
       close_tick = GetTickCount();
       g_state = 2;
@@ -909,6 +927,11 @@ DWORD WINAPI DrawThread(LPVOID) {
       g_state = 1;
       drawn_version = 0xFFFFFFFF;
       g_scanout_at_open = g_reg_scanout;
+      PauseBehindMenu();
+      if (g_paused_own && g_opens == 1) {
+        util::Log("Overlay: the game stops behind the menu while it's open ([Menu] PauseGame = 0 "
+                  "keeps it running)");
+      }
       if (g_opens == 1 || g_surf_count < kSurfaces || g_borrowed) {
         util::Log("Overlay: %s %d x %u bytes, %u KB free, strips of %d rows;", g_borrowed
                   ? "game paused, drawing into its own front buffers:" : "menu frames", g_surf_count,
@@ -943,7 +966,9 @@ DWORD WINAPI DrawThread(LPVOID) {
       for (;;) {
         if (g_stop || !g_want_open || !g_ever_shown[target]) break;
         const DWORD since = GetTickCount() - g_off_tick[target];
-        if (since >= 40 && (g_swaps - g_off_swap[target] >= 3 || since >= 150)) break;
+        // With the game stopped for a while there are no more of its frames to come.
+        const bool still = g_paused && GetTickCount() - g_paused_tick >= 150;
+        if (since >= 40 && (g_swaps - g_off_swap[target] >= 3 || since >= 150 || still)) break;
         Sleep(2);
       }
     } else if (g_shown >= 0) {
@@ -979,6 +1004,7 @@ DWORD WINAPI DrawThread(LPVOID) {
     sp_menu_current = 0;
     sp_pin_phys = 0;
     g_pause_req = 0;
+    g_paused_own = false;
     g_draw_running = 0;
   }
   return 0;
@@ -1027,12 +1053,18 @@ extern "C" void sp_vdswap_record(const DWORD* fetch, const DWORD* frontbuffer_pt
     util::StartGameThread(DrawThread, 0x10000);
     util::StartGameThread(PinThread, 0x4000);
   }
+#if !defined(SKYPORTAL_SIDELOAD)
+  util::ServeGameThread();  // the phone remote's server, for one (main.cpp asks with each game)
+#endif
   // The menu wants the game's front buffers: wait here (the game's render thread, before this
   // frame is presented) until it closes. The game's other threads carry on.
   if (g_pause_req) {
+    g_paused_tick = GetTickCount();
     g_paused = 1;
     __sync();
-    while (g_pause_req && !g_stop) Sleep(2);
+    // Never past the Xbox Guide: it's drawn through the game's frames (the menu closes for it
+    // a moment later, but the game mustn't wait on that).
+    while (g_pause_req && !g_stop && !XamIsUIActive()) Sleep(2);
     g_paused = 0;
   }
 }
@@ -1092,6 +1124,8 @@ bool Ready() { return g_game_valid != 0; }
 
 void SetAllowPause(bool allow) { g_allow_pause = allow; }
 
+void SetAlwaysPause(bool on) { g_always_pause = on; }
+
 bool TitleEnded() {
   const bool was_open = g_want_open || g_state != 0;
   ++g_gen;  // the old game's drawing and scan-out threads stop, if anything of them is left
@@ -1102,6 +1136,7 @@ bool TitleEnded() {
   __sync();
   g_want_open = false;
   g_pause_req = 0;
+  g_paused_own = false;
   // They ended with the game; if one is somehow still finishing a frame, give it a moment.
   for (int i = 0; i < 50 && g_draw_running; ++i) Sleep(10);
   g_draw_running = 0;
@@ -1124,6 +1159,7 @@ void Stop() {
   g_want_open = false;
   g_stop = true;
   g_pause_req = 0;
+  g_paused_own = false;
 }
 
 void LogStatus() {

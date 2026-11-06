@@ -20,6 +20,7 @@ char* xrt_strrchr(const char* s, int c);
 char* xrt_strcpy(char* dst, const char* src);
 char* xrt_strcat(char* dst, const char* src);
 char* xrt_strncat(char* dst, const char* src, size_t n);
+char* xrt_strstr(const char* haystack, const char* needle);
 }
 
 static int g_fail = 0;
@@ -54,6 +55,15 @@ static int Fmt(char* buf, size_t cap, const char* fmt, ...) {
 
 int main() {
   printf("printf\n");
+  {
+    static const char* const kHay[] = {"GET / HTTP/1.1\r\n\r\n", "abcabcabd", "", "aaa", "x.qoi"};
+    static const char* const kNeedle[] = {"\r\n\r\n", "abd", "a", "", ".qoi", "zz", "abcabd"};
+    for (size_t h = 0; h < sizeof(kHay) / sizeof(kHay[0]); ++h) {
+      for (size_t n = 0; n < sizeof(kNeedle) / sizeof(kNeedle[0]); ++n) {
+        CHECK(xrt_strstr(kHay[h], kNeedle[n]) == strstr(kHay[h], kNeedle[n]));
+      }
+    }
+  }
   SAME("%d %i %u", -5, 42, 7u);
   SAME("%08X|%x|%X", 0x8A01793Cu, 0xbeefu, 0u);
   SAME("[%5d][%-5d][%05d]", 42, 42, -42);

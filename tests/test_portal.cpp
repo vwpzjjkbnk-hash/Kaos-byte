@@ -144,11 +144,13 @@ static void TestFigureLifecycle() {
 
   int tag = -1;
   u8 saved[kFigureSize];
+  CHECK(p.HasUnsaved(42) && !p.HasUnsaved(7));  // (its file is behind until saved)
   CHECK(p.TakeDirty(&tag, saved));
   CHECK(tag == 42);
   CHECK(memcmp(saved + 0x80, blk, 16) == 0);
   CHECK(memcmp(saved, fig, 0x80) == 0);
   CHECK(!p.TakeDirty(&tag, saved));  // nothing left
+  CHECK(!p.HasUnsaved(42));
 
   // A write, then removal before the save: the writes survive in the pending list.
   blk[0] = 0x55;
@@ -157,7 +159,9 @@ static void TestFigureLifecycle() {
   CHECK(p.Remove(0));
   CHECK(Poll(b, r) && r[0] == 'S' && (r[1] & 3) == 2);  // "removing"
   CHECK(Poll(b, r) && r[0] == 'S' && (r[1] & 3) == 0);  // then empty
+  CHECK(p.HasUnsaved(42));  // taken off, still to be saved (put back on, it's saved first)
   CHECK(p.TakeDirty(&tag, saved) && tag == 42 && saved[0x90] == 0x55);
+  CHECK(!p.HasUnsaved(42));
   CHECK(!p.TakeDirty(&tag, saved));
 
   // Swap without the game seeing the removal: the new figure must not reuse the vacated slot.

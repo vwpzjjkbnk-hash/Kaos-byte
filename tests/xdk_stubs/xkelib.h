@@ -22,6 +22,7 @@ NTSTATUS XexGetModuleHandle(PSZ, PHANDLE);
 NTSTATUS XexGetProcedureAddress(HANDLE, DWORD, PVOID);
 BOOL MmIsAddressValid(PVOID);
 DWORD XamGetCurrentTitleId(VOID);
+BOOL XamIsUIActive(VOID);
 VOID XNotifyQueueUI(XNOTIFYQUEUEUI_TYPE, DWORD, ULONGLONG, PWCHAR, PVOID);
 }
 VOID XapiThreadStartup(VOID (__cdecl *StartRoutine)(VOID *), PVOID StartContext, DWORD dwExitCode);

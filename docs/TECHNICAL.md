@@ -1,9 +1,9 @@
-> Developer notes from the project's earlier versions (when it was called SkyPortal360 / skydrawn). Folder and file names here use the old names: `SkyPortal` is now `The Static Rift`, `skyportal.ini` is now `staticrift.ini` and `skydrawn16.xex` is now `Kaos-Byte2.0v.xex`.
+> Developer notes from the project's earlier versions (when it was called SkyPortal360 / skydrawn). Folder and file names here use the old names: `SkyPortal` is now `The Static Rift`, `skyportal.ini` is now `staticrift.ini` and `skydrawn16.xex` is now `KaosByte.xex` (Peer Pressure; the Dashlaunch build is `KaosByteDSL.xex`).
 
-# Project Kaos-Byte2.0v — The Static Rift
+# Project Kaos-Byte4.1.0v — The Static Rift
 
 (Formerly SkyPortal360.) The menu, the data folder (`The Static Rift`), `staticrift.ini` and the
-plugin (`Kaos-Byte2.0v.xex`) carry the new name; a folder still called `SkyPortal` and a
+plugin (`KaosByte.xex`) carry the new name; a folder still called `SkyPortal` and a
 `skyportal.ini` keep working.
 
 A virtual **Portal of Power** for the Xbox 360 Skylanders games on a modded console. No portal
@@ -15,7 +15,7 @@ It comes in two builds from the same source:
 
 | Your console | Build | Loaded by |
 |---|---|---|
-| RGH / JTAG, or BadUpdate + XeUnshackle (Dashlaunch) | `make -C xrt VARIANT=rgh` → `Kaos-Byte2.0v-RGH.xex` (or MSVC `Release`) | Dashlaunch `launch.ini` plugin |
+| RGH / JTAG, or BadUpdate + XeUnshackle (Dashlaunch) | `make -C xrt VARIANT=rgh` → `KaosByteDSL.xex` (or MSVC `Release`) | Dashlaunch `launch.ini` plugin |
 | **Peer Pressure** softmod | `Release_PeerPressure` → `SkyPortal360.xex` | Peer Pressure DLL sideloading |
 
 Peer Pressure doesn't load Dashlaunch plugins. It loads per-game title DLLs instead, which
@@ -328,3 +328,187 @@ figures) are listed first as "My Figures" and get their details from the index b
 `make -C tests preview ASSETS=<SkyPortal folder>` renders the menu on the PC with the same code;
 `make -C tests emu` runs all three builds on the emulated CPU (set `SKYPORTAL_ASSETS` for real
 pictures), including captures of the menu frames.
+
+## Phone remote (Peer Pressure, and the Dashlaunch build with the drawn menu)
+
+`src/xbox/remote.cpp` is a small HTTP/1.1 server on its own game thread. It starts 8 s after the
+game (so the game sets up its own networking first), then calls `NetDll_XNetStartup` and
+`NetDll_WSAStartup` as the title (caller type 1; both only count up when the game has already
+started them), opens a TCP socket, marks it insecure (`setsockopt(SOL_SOCKET, 0x5801)`: plain TCP,
+not the console's encrypted traffic; Peer Pressure removes the xex privilege check that normally
+guards this) and listens on port 80, or 8080 when 80 is taken. `NetDll_XNetGetTitleXnAddr` gives
+the console's address for the toast, the log and the menu header.
+
+Since 3.1.0v it serves several connections at once (eight in 3.2.0v) from that one thread,
+non-blocking with `select()`, and keeps them open between requests (HTTP keep-alive). 3.0.0v answered one request per connection
+and closed it: the console's TCP sockets come from a small pool (XNet's default is 32 stream
+sockets), and a socket the Xbox closes first stays in TIME_WAIT for a while still holding its place,
+so a screenful of pictures used the pool up and new connections were refused ("connection lost").
+Each response now goes out in one `send()` where it can (the headers in front of the body, or of a
+file's first 16 KB) with `TCP_NODELAY`, instead of a small header send followed by the body, which
+waited on the phone's delayed ACK (about 200 ms) every time. The listening socket is opened again if
+it fails; the server never stops while the game runs. Its thread runs at a slightly raised priority
+(+2) and sleeps in `select()` when there's nothing to do.
+
+The phone's pictures are `The Static Rift\Phone\...` (made by `tools/mkphone.py`): 160 x 160 JPG crops
+of the cards' tops, about 6 KB each instead of about 110 KB for the menu's QOI pictures; element
+icons and game logos as PNG; the background as JPG.
+
+**Live updates (3.2.0v).** The page keeps one `GET /api/events` open (Server-Sent Events). The
+worker thread bumps a revision counter (`remote::Changed()`, called from `SavePortalState`, so the
+phone, the TV menu and a swap finishing all count); the server thread sees a stream whose revision
+is behind, posts `/api/state` to the mailbox for it, and sends the answer as one `data:` event. The
+mailbox keeps 512 bytes of head room in front of the answer, so HTTP headers or the `data: ` prefix
+go in front without a copy. Every stream gets `retry: 1000` (browsers reconnect a dropped stream
+after a second) and a ping event every 5 s. When all eight slots are taken, the connection that has
+been idle longest without asking for anything (browsers open spares ahead of time) gives up its
+slot to the new one.
+
+**The page (3.2.0v)** is built to run in any phone browser and stay light however long the list:
+- pictures are plain `<img>` tags the browser manages (no `blob:` URLs, no canvas copies). An
+  `IntersectionObserver` gives a card its picture when it comes within 1200 px of the screen and
+  takes it back (`src` removed) when it goes further away, so about 60 pictures are held at any
+  time instead of one per card scrolled past. A queue loads three at a time, the ones on the
+  screen first, then the nearest; a picture lost to a dropped connection is retried, and only a
+  real 404 falls back to the menu's QOI picture (decoded in JavaScript, canvas freed at once);
+- no `backdrop-filter`, no blurred full-screen fixed layer (expensive on WebKit at 3x scale), no
+  flex `gap`, `aspect-ratio` or `inset`; the script is plain ES5 plus `fetch`/`Promise`/
+  `EventSource` (iOS 10.3+, any current Chrome, Firefox, Samsung Internet, Edge);
+- actions show at once (the chip and the card's ON badge appear on the tap), go to the Xbox in
+  order through a queue (none dropped while one is on its way), are tried twice (doing one again
+  is harmless), and are undone on the page if the Xbox says no;
+- Quick tap: one tap on a card sends Swap in; holding it (450 ms, or right-click) opens its sheet;
+- without `EventSource`, or when the stream keeps failing, the page asks for `/api/state` every
+  2 s instead and tries the stream again every 30 s. The status dot turns yellow only when a
+  reconnect takes more than 2 s or two pings went missing, and red after 16 s without a word; a
+  quiet stream is started again, and coming back from the lock screen (`visibilitychange`,
+  `pageshow`, `online`) catches up at once.
+
+Measured in the emulator with an Xbox-like network (`XBOX_LIMITS=1` in `tests/emu/run_remote.py`: a
+32-socket pool, 60 s TIME_WAIT, a 1.5 MB/s link, Nagle with delayed ACKs) and `remote_load.js` as the
+phone: 3.0.0v never finished the first screen of pictures (7 of 8 after 60 s), every scroll step timed
+out and 71 connections were refused; 3.1.0v shows the first screen in under half a second, each
+scroll step in about 0.13 s, over 4 connections in all, with 0.7 MB sent instead of several MB. On a
+400 KB/s link losing a connection on 15% of its sends, every screen still fills (1.5 s at worst).
+
+3.2.0v, same set-up: the first screen in 0.3 s (pictures 0.11 s after the list), each scroll step
+0.11-0.12 s or none at all (already loaded ahead), 5 connections. On the lossy link: the first
+screen in 0.65-1.3 s, the slowest scroll step 0.84 s, never red and yellow in 3 of 78 samples, with
+28 connections killed along the way. `remote_browser.js` measures (in the emulator, where the
+console's CPU is emulated): Quick tap shows the figure the moment it's tapped and the Xbox confirms
+in about 60 ms; a change made elsewhere reaches the page in 50-80 ms with no polling; after a 4 s
+Wi-Fi blip (every connection reset, new ones refused, `XBOX_BLIP_FILE` in `run_remote.py`) the
+stream reconnects by itself and the next change shows in about 60 ms. `remote_mem.js` (a phone-sized
+Chromium slowed down 4x, the whole Trap Team list of 516 scrolled, 20 figures opened): 3.1.0v ended
+up holding 506 pictures and 541 `blob:` URLs, 3.2.0v 60 and none. Chromium's own process memory
+barely moves either way (it drops off-screen decoded pictures by itself); WebKit (Safari, and every
+browser on iPhone) keeps far more of what the page holds, which is where the old page ran out.
+WebKit itself can't run in this test set-up, so the Safari side rests on avoiding what WebKit is
+known to struggle with rather than on a measurement.
+
+| Request | Answer |
+|---|---|
+| `GET /` | `The Static Rift\UI\remote.html` (re-read every time, never cached) |
+| `GET /UI/...`, `GET /Images/...`, `GET /Phone/...` | files from those three folders only (no `..`, no drive letters; cached a week) |
+| `GET /api/events` | `text/event-stream`: the state now and on every change (`data:`), a `ping` event every 5 s |
+| `GET /api/state` | the running game, what's on the rift (and a figure being swapped in), the lists (Favorites and your own included), element names, `rev`, `nrev` |
+| `GET /api/meta` | nicknames (`[[id,"nick"],...]`) and every list's figures (`[[view,"name",[ids]],...]`); fetched when `nrev` changes |
+| `POST /api/nick?i=<id>&n=<nickname>` | gives a figure a nickname (cleaned up as below; empty takes it away) |
+| `POST /api/lists?a=add\|remove\|new\|rename\|delete&l=<view>&i=<id>&n=<name>` | Favorites (view 8) and your own lists (9-20): add / take out a figure, make one (with a figure in it), rename, delete |
+| `GET /api/list?v=<list>&from=<n>` | one page (up to 24 KB) of a list: All (0), My Picks (1), a game (2-7); `next` says where the next page starts |
+| `POST /api/do?a=add|swap|remove|clear&i=<id>` | the menu's A / Y / B / X for that figure, with a message |
+
+The server thread only moves bytes. API calls go through a one-slot mailbox to the worker thread
+(the one that runs the controller menu and saves), which answers them between its 20 ms ticks, so
+the figure library and the rift are only ever touched from one thread. A list request builds the
+whole list once (switching the library to that list for a moment and back, on the same figure the
+menu shows) and hands it out page by page.
+
+NetDll ordinals (xam.xex): socket 0x03, closesocket 0x04, shutdown 0x05, ioctlsocket 0x06, setsockopt 0x07, bind 0x0B,
+listen 0x0D, accept 0x0E, select 0x0F, recv 0x12, send 0x16, WSAGetLastError 0x1B, WSAStartup 0x01,
+XNetStartup 0x33, XNetGetTitleXnAddr 0x49 (Xenia's `xam_table.inc`).
+
+### Putting figures on fast (4.1.0v)
+
+From a tap on the phone to the figure on the virtual portal, nothing waits that doesn't have to:
+- the worker naps in 2 ms steps while the phone remote is listening and wakes as soon as a request
+  is in the mailbox (`remote::Waiting`), answering it before anything else in its round; the
+  server waits on the answer in 1 ms selects;
+- Swap in no longer saves game progress before taking the old figures off: the portal keeps what
+  the game wrote to a figure that came off (`pending_`), and the worker saves it in the background
+  while the new one waits. Only a figure put back on while its file is behind (`HasUnsaved`) is
+  saved first;
+- `rift_state.txt` is written a second after the rift settles instead of on every change;
+- the swap gap, the moment between the game seeing the old figures come off and the new one going
+  on, is `[General] SwapGapMs` (150 ms, at least 3 more status reports; Giants at least 400 ms and
+  8 reports) instead of 750 ms and 30 reports. Removal and arrival still never share a status
+  report (what left Giants on its loading screen), and while a swap waits the worker checks every
+  2 ms;
+- once a game runs, the worker is one step above the game's ordinary threads (on the Dashlaunch
+  build it's a system thread, which otherwise queues behind the game's).
+In the emulator a swap from the phone now reaches the game 11 polls after the request (the old
+gap alone was over 30); on the console that's about 150-200 ms plus the game's own reading of the
+figure.
+
+### The Dashlaunch build (4.0.0v)
+
+The Dashlaunch plugin is a system DLL whose worker is a system thread that lives across games, but
+the server has to use the game's network the way the game's own code does, and go with it. So
+with each Skylanders game `StartGame` asks for the server thread (`util::RequestGameThread`), and
+the next game thread that passes through one of the plugin's hooks (the game polling the
+controller through the `XamInputGetState` hook, or presenting a frame through the menu's `VdSwap`
+hook) starts it as one of the game's own threads (`util::ServeGameThread`, `ExCreateThread`
+without the system flag). From there it is the same server as on Peer Pressure (caller type 1,
+the same insecure socket the freeboot / Dashlaunch patch sets allow, as Peer Pressure's do). When
+the game exits, its threads, sockets and open files go with it; `remote::TitleEnded` forgets them
+(never closing handles that were the game's), frees the mailbox lock in case the server held it,
+and the next game starts a fresh server. The worker answers the API between its own 20 ms ticks,
+as on Peer Pressure. `run_remote.py` runs the whole of its check list on `KaosByteDSL.xex` too:
+boot on the dashboard, Trap Team starts, the server comes up on the game's input thread, every
+HTTP and browser check, then the game exits (the remote stops and nothing answers) and starts
+again (the remote comes back, with its pop-up, and works).
+
+### Nicknames and lists (4.0.0v)
+
+`src/core/collections.cpp` (portable) keeps nicknames and lists; `main.cpp` reads them after each
+game's scan and writes them the moment something changes (`MetaChanged`, worker thread only), then
+bumps `nrev` and pushes the state to the phones. Both files sit next to `staticrift.ini` and name
+figures by their file (the path relative to `Figures`, stable for a figure); updates never ship them:
+
+    nicknames.ini                              lists.ini
+    [Nicknames]                                [Favorites]
+    Skylanders\...\Chop Chop.dump = Choppy     Skylanders\...\Chop Chop.dump
+                                               [Speedrun]
+                                               ...
+
+A line naming a figure that isn't in `Figures` right now is kept and written back (up to 16
+nicknames, 32 list lines). Typed text is cleaned up the same way on the phone and the console:
+printable ASCII only (what the menu's font has), single spaces, trimmed, 20 characters for a
+nickname, 24 for a list's name (no `[` `]`); list names are unique ignoring case. Favorites is list
+0 (view 8) and can't be renamed or deleted; up to 12 lists of your own, 160 figures each.
+
+`FigureLibrary::SetListView` shows a list in the menu: its figures in its own order, each once,
+through the same game filter as everything else. R3 goes ALL, then Favorites and each list that has
+figures, then My Picks, then each game. When the phone changes the list the TV is showing, the menu
+follows (`ListsChanged`), and goes back to ALL if the list was deleted or emptied.
+
+The nickname keyboard (START on a figure, `keyboard.h`) is drawn by `overlay_render.cpp` as a panel
+over the dimmed menu: 4 rows of 10 keys (a-z, `- ' . !`, 0-9) and SPACE / DEL / CAPS / DONE; the
+first letter is a capital until CAPS is pressed. D-pad with auto-repeat, A types, B deletes, X
+space, Y capitals, START saves, BACK cancels; the modifier closes the menu without saving. The
+nickname shows under the figure's name (the name drops a font size); the hint row makes room for
+START NICKNAME and the R3 list by dropping D-PAD BROWSE when it has to.
+
+Tests: `tests/test_collections.cpp` (reading, writing, cleaning up, list editing, lines kept for
+missing figures), `tests/test_figures.cpp` (the list view), `run_dll.py` (drawn and rgh rounds:
+START, typing "Rexy" on the keyboard, saved to nicknames.ini, BACK cancels; frames saved as
+emu_keyboard.png and emu_nickname.png) and `run_remote.py` / `remote_browser.js` (the API, the
+files written, and the page: a nickname between the name and the series, the star, the Favorites
+tab, a list made from a figure's Lists, renamed and deleted, `+ New list`).
+
+Tests: `tests/test_remote.cpp` (request parsing, query values, which files are served, JSON,
+headers, keep-alive) and `tests/emu/run_remote.py` (the built xex on the emulated CPU with NetDll backed by real
+sockets; plain HTTP checks, then `remote_browser.js` drives a phone-sized Chromium through the page,
+and the fake game finds the figure the browser put on). 3.2.0v adds Quick tap, live-update and Wi-Fi
+blip checks to `remote_browser.js`; `REMOTE_MODE=load` with `remote_load.js` or `remote_mem.js` times
+the page and measures what it holds.

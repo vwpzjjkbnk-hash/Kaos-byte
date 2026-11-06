@@ -47,17 +47,22 @@ class FigureLibrary {
   };
   static const char* CategoryName(int category);  // "Gimmick Skylanders", ...
   int GetCategory(int id);  // cached
-  // true (the default): browse by type in the order above, then element, then name, wherever the
+  // The menu's type order: gimmick Skylanders, Skylanders, crystals, traps, vehicles, magic items,
+  // adventure packs.
+  static int TypeRank(int category);
+  // true (the default): browse by type in that order, then element, then name, wherever the
   // figure's file is; false: folder by folder as the files are laid out. Takes effect at Resort().
   void SetSortByType(bool on) { sort_by_type_ = on; }
   bool SortByType() const { return sort_by_type_; }
   // "My Picks": the menu's second list (R3). `names` are figure names as the menu shows them
   // (a swapper's name without Top/Bottom picks both halves), optionally with a game in front
-  // ("Trap Team Eon's Elite Chop Chop") or a series ("Drobot (Series 2)") to pick that release;
-  // the list shows each pick's newest such release the game can use, plus every crystal,
-  // vehicle, trap, adventure pack and magic item, and every unreleased figure with the regular
-  // figure it's a version of.
-  void SetPicks(const char* const* names, int count);
+  // ("Trap Team Eon's Elite Chop Chop") or a series ("Drobot (Series 2)") to pick that release.
+  // `rosters` (optional) is the game whose picks.ini section each name came from. The list shows
+  // each pick's newest such release the game can use (a picked SuperCharger brings its vehicle),
+  // roster by roster: the highest game's first (the running game's), then back to Spyro's
+  // Adventure; then every crystal, trap, vehicle, magic item and adventure pack the game can use.
+  // Each part in the usual type, element and name order.
+  void SetPicks(const char* const* names, int count, const signed char* rosters = NULL);
   int PickCount() const { return pick_count_; }
   void SetPicksMode(bool on) { picks_mode_ = on && pick_count_ > 0; }
   bool PicksMode() const { return picks_mode_; }
@@ -71,20 +76,32 @@ class FigureLibrary {
   int ViewGame() const { return view_game_; }
   // How many figures the game filter lets through from game `game`'s own releases.
   int CountFromGame(int game);
-  void Resort() { SortBrowse(); }  // after SetSortByType / SetPicksMode / SetViewGame
-  // The menu's section heading for a figure in the type order ("Skylanders / Magic"); false
-  // when browsing by folder.
-  bool SectionLabel(int id, char* out, int cap);
+  // A list of your own (Favorites, or one made on the phone): exactly these figures, in this
+  // order (each once; the game filter still applies). `tag` says which list it is (ListTag);
+  // count < 0 turns it off. The ids are read at each Resort(), so the caller keeps them alive.
+  void SetListView(const short* ids, int count, int tag) {
+    list_ids_ = ids;
+    list_count_ = ids ? count : -1;
+    list_tag_ = list_count_ >= 0 ? tag : -1;
+  }
+  int ListTag() const { return list_tag_; }  // -1 when not showing a list
+  void Resort() { SortBrowse(); }  // after SetSortByType / SetPicksMode / SetViewGame / SetListView
+  // The menu's section heading for the figure at browse position `pos` in the type order
+  // ("Skylanders / Magic"); false when browsing by folder.
+  bool SectionLabel(int pos, char* out, int cap);
+  // My Picks: the roster (game, 1-6) of the figure at browse position `pos`; 0 otherwise.
+  int RosterAt(int pos) const;
   int UnreadableDirs() const { return unreadable_dirs_; }  // empty or unopenable folders at the last Scan()
 
-  // Browsing order: folder by folder; within a folder by element (Air, Earth, Fire, Water, Magic,
-  // Tech, Life, Undead, Light, Dark, then none), then by name. Only files that exist and are
-  // 1024 bytes.
+  // Browsing order: by type (or folder by folder); then by element (Air, Earth, Fire, Water,
+  // Magic, Tech, Life, Undead, Light, Dark, then none), then by name. Only files that exist and
+  // are 1024 bytes.
   int BrowseCount() const { return browse_count_; }
   int BrowseAt(int pos) const;      // entry id, or -1
-  int BrowsePos(int id) const;      // position of an entry id, or -1
-  // Browse position of the first figure in the next (+1) / previous (-1) section: a folder, or
-  // one element's figures within a folder.
+  int BrowsePos(int id) const;      // first position of an entry id (My Picks can list a figure
+                                    // in more than one roster), or -1
+  // Browse position of the first figure in the next (+1) / previous (-1) section: a type and
+  // element (in My Picks, within a roster), or a folder and element when browsing by folder.
   int GroupJump(int pos, int dir) const;
 
   const char* Name(int id) const;  // display name (index), else the file name without extension
@@ -124,7 +141,9 @@ class FigureLibrary {
   };
   void ReadRelease(int id);
   bool Before(int a, int b) const;        // browse order (SortBrowse)
-  bool SameSection(int a, int b) const;   // same folder and element (GroupJump)
+  bool SameSection(int pa, int pb) const; // browse positions in the same section (GroupJump)
+  int VehicleOf(int id);                  // a SuperCharger's vehicle among the browsed, or -1
+  static int AddToList(int* ids, signed char* rosters, int n, int id, int roster);
   void ScanDir(const char* rel_dir, int depth);
   void AddFile(const char* rel);
   void FullPath(int id, char* out, size_t cap) const;
@@ -138,6 +157,7 @@ class FigureLibrary {
   Entry* entries_;
   int count_;
   int* browse_;
+  signed char* browse_roster_;  // My Picks: each position's roster (else 0)
   int browse_count_;
   int filter_game_;
   int hidden_count_;
@@ -153,18 +173,22 @@ class FigureLibrary {
   int index_lines_;
 
   bool sort_by_type_;
-  enum { kMaxPicks = 64, kPickLen = 48 };
+  enum { kMaxPicks = 192, kPickLen = 48 };
   struct Pick {
     char text[kPickLen];  // as written in picks.ini (for the log)
     char name[kPickLen];  // normalized, without "LightCore", the game or the series
     signed char game;     // "Trap Team Eon's Elite Chop Chop": that game's release; 0 = any
     signed char series;   // "Drobot (Series 2)": that series; 0 = any
     bool lightcore;       // "LightCore Smolderdash" = "Smolderdash LightCore"
+    signed char roster;   // the game whose picks.ini section it's in (0 = none given)
     bool found;           // at the last sort
   };
   Pick picks_[kMaxPicks];
   int pick_count_;
   int view_game_;
+  const short* list_ids_;
+  int list_count_;
+  int list_tag_;
   bool picks_mode_;
   int picks_found_;
 };

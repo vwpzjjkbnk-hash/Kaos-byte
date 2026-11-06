@@ -165,6 +165,9 @@ extern "C" DWORD sp_hook_set_raw_ex(DWORD device, BYTE* buffer, DWORD length) {
 // modifier is held, so browsing figures doesn't also move the character. While the full-screen
 // menu is open the game sees an idle controller.
 extern "C" DWORD sp_hook_get_state(DWORD user_index, DWORD flags, PXINPUT_STATE state) {
+#if !defined(SKYPORTAL_SIDELOAD)
+  util::ServeGameThread();  // (a thread the plugin wants in the game: this is one of its threads)
+#endif
   const DWORD result = SP_CALL3(g_real_get_state, XamInputGetStateFn, user_index, flags, state);
   if (result == ERROR_SUCCESS && state && g_block_input) {
     memset(&state->Gamepad, 0, sizeof(state->Gamepad));

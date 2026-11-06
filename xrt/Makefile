@@ -1,10 +1,10 @@
-# Project Kaos-Byte2.0v (The Static Rift) open toolchain: builds the Peer Pressure title DLL with clang + ld.lld + Python,
+# Project Kaos-Byte4.1.0v (The Static Rift) open toolchain: builds the Peer Pressure title DLL with clang + ld.lld + Python,
 # no Xbox 360 XDK. Needs clang/lld with the PowerPC target (LLVM 14+) and python3.
 #
-#   make -C xrt                  -> xrt/build/classic/Kaos-Byte2.0v-classic.xex (menu: notifications)
-#   make -C xrt VARIANT=pop      -> xrt/build/pop/Kaos-Byte2.0v-pop.xex (console pop-up menu)
-#   make -C xrt VARIANT=drawn    -> xrt/build/drawn/Kaos-Byte2.0v.xex (menu drawn on screen)
-#   make -C xrt VARIANT=rgh      -> xrt/build/rgh/Kaos-Byte2.0v-RGH.xex (Dashlaunch plugin for
+#   make -C xrt                  -> xrt/build/classic/KaosByte-classic.xex (menu: notifications)
+#   make -C xrt VARIANT=pop      -> xrt/build/pop/KaosByte-pop.xex (console pop-up menu)
+#   make -C xrt VARIANT=drawn    -> xrt/build/drawn/KaosByte.xex (menu drawn on screen)
+#   make -C xrt VARIANT=rgh      -> xrt/build/rgh/KaosByteDSL.xex (Dashlaunch plugin for
 #                                   RGH / JTAG / BadUpdate + XeUnshackle; drawn menu)
 #   make -C xrt all-variants
 #   make -C xrt BASE=0x8C000000   (if the default base clashes with a game)
@@ -30,19 +30,19 @@ SIGN_CHECK = $(PYTHON) xexsign.py $@
 
 ifeq ($(VARIANT),rgh)
   MENU_DEFS := -DSKYPORTAL_MENU_DRAWN
-  NAME := Kaos-Byte2.0v-RGH
+  NAME := KaosByteDSL
   LOAD_DEFS :=
   XEX_FLAGS := --dll --sysdll --page-4k
   SIGN_CHECK = @true
 else ifeq ($(VARIANT),pop)
   MENU_DEFS := -DSKYPORTAL_MENU_POP
-  NAME := Kaos-Byte2.0v-pop
+  NAME := KaosByte-pop
 else ifeq ($(VARIANT),drawn)
   MENU_DEFS := -DSKYPORTAL_MENU_DRAWN
-  NAME := Kaos-Byte2.0v
+  NAME := KaosByte
 else
   MENU_DEFS :=
-  NAME := Kaos-Byte2.0v-classic
+  NAME := KaosByte-classic
 endif
 
 BUILD := build/$(VARIANT)
@@ -60,7 +60,8 @@ CXXFLAGS := $(TARGET_FLAGS) -std=c++11 -O2 -ffreestanding -fno-builtin -nostdlib
   -Iinclude -I$(SRC)/core -I$(SRC)/xbox
 ASFLAGS := $(TARGET_FLAGS)
 
-PLUGIN_SRCS := $(SRC)/core/portal_core.cpp $(SRC)/xbox/config.cpp $(SRC)/xbox/figures.cpp \
+PLUGIN_SRCS := $(SRC)/core/portal_core.cpp $(SRC)/core/remote_http.cpp $(SRC)/core/collections.cpp $(SRC)/xbox/config.cpp \
+  $(SRC)/xbox/figures.cpp $(SRC)/xbox/remote.cpp \
   $(SRC)/xbox/hooks.cpp $(SRC)/xbox/main.cpp $(SRC)/xbox/util.cpp $(SRC)/xbox/elements.cpp \
   $(SRC)/xbox/menu_pop.cpp $(SRC)/xbox/overlay.cpp $(SRC)/xbox/overlay_render.cpp \
   $(SRC)/xbox/qoi.cpp

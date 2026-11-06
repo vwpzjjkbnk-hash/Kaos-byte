@@ -259,6 +259,15 @@ int VirtualPortal::Count() const {
   return n;
 }
 
+bool VirtualPortal::HasUnsaved(int tag) const {
+  Guard g(lock_);
+  for (int i = 0; i < kMaxSlots; ++i) {
+    if (slots_[i].present && slots_[i].dirty && slots_[i].tag == tag) return true;
+    if (pending_[i].used && pending_[i].tag == tag) return true;
+  }
+  return false;
+}
+
 bool VirtualPortal::TakeDirty(int* tag, u8* data) {
   Guard g(lock_);
   for (int i = 0; i < kMaxSlots; ++i) {

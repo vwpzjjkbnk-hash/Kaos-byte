@@ -5,8 +5,9 @@
 // size, tiling, format) and jumps to the real VdSwap. While the menu is open it also swaps in the
 // plugin's own frame: VdSwap is handed a copy of the game's texture fetch constant and front
 // buffer address that point at a menu frame the plugin drew, so the display shows the menu
-// instead of the game's picture. The game keeps running and presenting as usual; nothing is drawn
-// into the game's buffers, so the menu can't flicker or be overwritten. Two menu frames are used
+// instead of the game's picture. Nothing is drawn into the game's buffers, so the menu can't
+// flicker or be overwritten. With [Menu] PauseGame (the default) the game stops at its next frame
+// while the menu is open: its render thread waits in VdSwap until the menu closes. Two menu frames are used
 // when there is memory for them (one shown, one being drawn), so changes appear in one step.
 //
 // The frames, the background and the pictures are allocated when the menu opens and freed a few
@@ -31,6 +32,9 @@ bool IsOpen();
 // May the menu pause the game and draw into its own front buffers when there's no memory for
 // frames of its own ([Menu] PauseGameWhenLowOnMemory)?
 void SetAllowPause(bool allow);                    // open or opening (input goes to the menu)
+// Stop the game behind the menu in every game, whatever frames the menu uses ([Menu] PauseGame,
+// on by default); it carries on when the menu closes.
+void SetAlwaysPause(bool on);
 bool Ready();                     // the game has presented frames (the menu can open)
 
 // Dashlaunch build: the game this was drawing over has exited (and its threads with it, the menu's

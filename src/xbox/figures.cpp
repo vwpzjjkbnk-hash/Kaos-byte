@@ -66,19 +66,6 @@ void Normalize(const char* in, char* out, int cap) {
   out[n] = 0;
 }
 
-// The same without anything in brackets: "Corrupted Heartbreaker Buckshot (Max Level Top Path)"
-// -> "corruptedheartbreakerbuckshot".
-void NormalizeBase(const char* in, char* out, int cap) {
-  int n = 0, depth = 0;
-  for (; *in && n < cap - 1; ++in) {
-    const char c = Lower(*in);
-    if (c == '(') ++depth;
-    else if (c == ')' && depth) --depth;
-    else if (!depth && ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) out[n++] = c;
-  }
-  out[n] = 0;
-}
-
 // A figure name as picks.ini matches it: normalized, with "LightCore" taken out wherever it is
 // ("LightCore Smolderdash", "Smolderdash LightCore") and reported in *lightcore.
 void PickKey(const char* in, char* out, int cap, bool* lightcore) {
@@ -114,11 +101,6 @@ int Distance(const char* a, const char* b, int max) {
     if (low > max) return -1;
   }
   return row[lb] <= max ? row[lb] : -1;
-}
-
-bool EndsWith(const char* s, const char* tail) {
-  const size_t ls = strlen(s), lt = strlen(tail);
-  return lt && lt <= ls && !strcmp(s + ls - lt, tail);
 }
 
 bool ContainsNoCase(const char* s, const char* word) {  // word in lower case
@@ -208,10 +190,13 @@ FigureLibrary::FigureLibrary()
     : entries_(NULL), count_(0), browse_(NULL), browse_count_(0), filter_game_(0), hidden_count_(0),
       newest_only_(false), older_count_(0), unreadable_dirs_(0), index_(NULL), index_size_(0),
       index_hash_(NULL), index_off_(NULL), index_lines_(0), sort_by_type_(true), pick_count_(0),
-      view_game_(0), picks_mode_(false), picks_found_(0) {
+      view_game_(0), list_ids_(NULL), list_count_(-1), list_tag_(-1), picks_mode_(false),
+      picks_found_(0) {
   root_[0] = 0;
   entries_ = new Entry[kMaxFigures];
   browse_ = new int[kMaxFigures];
+  browse_roster_ = new signed char[kMaxFigures];
+  memset(browse_roster_, 0, kMaxFigures);
   memset(entries_, 0, sizeof(Entry) * kMaxFigures);
 }
 
@@ -488,8 +473,9 @@ int FigureLibrary::GetCategory(int id) {
   return c;
 }
 
-bool FigureLibrary::SectionLabel(int id, char* out, int cap) {
-  if (!sort_by_type_ || id < 0 || id >= count_) return false;
+bool FigureLibrary::SectionLabel(int pos, char* out, int cap) {
+  const int id = BrowseAt(pos);
+  if (!sort_by_type_ || id < 0) return false;
   const int c = GetCategory(id);
   const char* el = elements::Name((elements::Element)Element(id));
   if (el[0]) {
@@ -500,11 +486,72 @@ bool FigureLibrary::SectionLabel(int id, char* out, int cap) {
   return true;
 }
 
-void FigureLibrary::SetPicks(const char* const* names, int count) {
+int FigureLibrary::RosterAt(int pos) const {
+  return (pos >= 0 && pos < browse_count_) ? browse_roster_[pos] : 0;
+}
+
+int FigureLibrary::TypeRank(int category) {
+  // Gimmick Skylanders, Skylanders, crystals, traps, vehicles, magic items, adventure packs.
+  static const int kRank[kCatCount] = {0, 2, 1, 4, 3, 6, 5};
+  return category >= 0 && category < kCatCount ? kRank[category] : kCatCount;
+}
+
+int FigureLibrary::AddToList(int* ids, signed char* rosters, int n, int id, int roster) {
+  for (int k = 0; k < n; ++k) {
+    if (ids[k] == id && rosters[k] == roster) return n;  // once per roster
+  }
+  if (n >= kMaxFigures) return n;
+  ids[n] = id;
+  rosters[n] = (signed char)roster;
+  return n + 1;
+}
+
+int FigureLibrary::VehicleOf(int id) {
+  // SuperChargers and their vehicles (index names, as PickKey makes them).
+  static const char* const kPairs[][2] = {
+      {"spitfire", "hotstreak"}, {"stormblade", "skyslicer"}, {"sharkshooterterrafin", "sharktank"},
+      {"deepdivegillgrunt", "reefripper"}, {"bigbubblepopfizz", "sodaskimmer"},
+      {"doubledaretriggerhappy", "goldrusher"}, {"supershotstealthelf", "stealthstinger"},
+      {"bonebashrollerbrawl", "tombbuggy"}, {"astroblast", "sunrunner"}, {"nightfall", "seashadow"},
+      {"smashhit", "thumptruck"}, {"splat", "splattersplasher"}, {"diveclops", "divebomber"},
+      {"fiesta", "cryptcrusher"}, {"highvolt", "shieldstriker"}, {"thrillipede", "buzzwing"},
+      {"hammerslambowser", "clowncruiser"}, {"turbochargedonkeykong", "barrelblaster"},
+      {"hurricanejetvac", "jetstream"}, {"lavalanceeruptor", "burncycle"}};
+  if (GetCategory(id) != kCatGimmick || Game(id) != 5) return -1;
+  char key[kPickLen + 8];
+  bool lc = false;
+  PickKey(Name(id), key, sizeof(key), &lc);
+  const int klen = (int)strlen(key);
+  for (int t = 0; t < (int)(sizeof(kPairs) / sizeof(kPairs[0])); ++t) {
+    const int slen = (int)strlen(kPairs[t][0]);
+    if (klen < slen || strcmp(key + klen - slen, kPairs[t][0])) continue;
+    // The same variant's vehicle if there is one ("dark" + "hotstreak"), else the plain one.
+    char want[2][kPickLen + 8];
+    sprintf_s(want[0], sizeof(want[0]), "%.*s%s", klen - slen, key, kPairs[t][1]);
+    strncpy_s(want[1], sizeof(want[1]), kPairs[t][1], _TRUNCATE);
+    for (int w = 0; w < 2; ++w) {
+      int best = -1;
+      for (int b = 0; b < browse_count_; ++b) {
+        const int v = browse_[b];
+        if (entries_[v].category != kCatVehicle) continue;
+        char vkey[kPickLen + 8];
+        PickKey(Name(v), vkey, sizeof(vkey), &lc);
+        if (strcmp(vkey, want[w])) continue;
+        if (best < 0 || Game(v) > Game(best)) best = v;
+      }
+      if (best >= 0) return best;
+    }
+    return -1;
+  }
+  return -1;
+}
+
+void FigureLibrary::SetPicks(const char* const* names, int count, const signed char* rosters) {
   pick_count_ = 0;
   for (int i = 0; i < count && pick_count_ < kMaxPicks; ++i) {
     Pick& p = picks_[pick_count_];
     strncpy_s(p.text, sizeof(p.text), names[i], _TRUNCATE);
+    p.roster = rosters ? rosters[i] : 0;
     p.game = 0;
     p.series = 0;
     p.found = false;
@@ -591,7 +638,9 @@ int FigureLibrary::BrowsePos(int id) const {
   return -1;
 }
 
-bool FigureLibrary::SameSection(int a, int b) const {
+bool FigureLibrary::SameSection(int pa, int pb) const {
+  if (browse_roster_[pa] != browse_roster_[pb]) return false;  // My Picks' rosters
+  const int a = browse_[pa], b = browse_[pb];
   if (sort_by_type_) {
     return entries_[a].category == entries_[b].category &&
            entries_[a].element == entries_[b].element;
@@ -606,23 +655,23 @@ bool FigureLibrary::SameSection(int a, int b) const {
 int FigureLibrary::GroupJump(int pos, int dir) const {
   const int n = browse_count_;
   if (n <= 1) return pos;
-  // A section is a folder, or one element's figures within a folder.
-  const int here = browse_[pos];
+  // A section is a type and element (a folder, or one element's figures within a folder, when
+  // browsing by folder); in My Picks, within one roster.
   int p = pos;
   if (dir > 0) {
     for (int k = 0; k < n; ++k) {
       p = (p + 1) % n;
-      if (!SameSection(browse_[p], here)) return p;
+      if (!SameSection(p, pos)) return p;
     }
     return pos;
   }
   // Back: to the start of this section if not already there, else the start of the previous one.
   int start = pos;
-  while (start > 0 && SameSection(browse_[start - 1], here)) --start;
+  while (start > 0 && SameSection(start - 1, pos)) --start;
   if (start != pos) return start;
   p = (pos - 1 + n) % n;
-  const int prev = browse_[p];
-  while (p > 0 && SameSection(browse_[p - 1], prev)) --p;
+  const int prev = p;
+  while (p > 0 && SameSection(p - 1, prev)) --p;
   return p;
 }
 
@@ -725,8 +774,28 @@ void FigureLibrary::SortBrowse() {
   for (int b = 0; b < browse_count_; ++b) {  // cached for Before and SameSection
     Element(browse_[b]);
     GetCategory(browse_[b]);
+    browse_roster_[b] = 0;
   }
   picks_found_ = 0;
+  if (list_count_ >= 0) {
+    // A list of your own: its figures in its order, each once, those the filter let through.
+    static unsigned char listed[kMaxFigures / 8];
+    static unsigned char added[kMaxFigures / 8];
+    memset(listed, 0, sizeof(listed));
+    memset(added, 0, sizeof(added));
+    for (int b = 0; b < browse_count_; ++b) listed[browse_[b] >> 3] |= (unsigned char)(1 << (browse_[b] & 7));
+    int n = 0;
+    for (int k = 0; k < list_count_; ++k) {
+      const int id = list_ids_[k];
+      if (id < 0 || id >= count_) continue;
+      const unsigned char bit = (unsigned char)(1 << (id & 7));
+      if (!(listed[id >> 3] & bit) || (added[id >> 3] & bit)) continue;
+      added[id >> 3] |= bit;
+      browse_[n++] = id;
+    }
+    browse_count_ = n;
+    return;  // in the list's own order
+  }
   if (view_game_ > 0) {
     // One game's own figures, every release.
     int kept = 0;
@@ -742,8 +811,7 @@ void FigureLibrary::SortBrowse() {
     // 3)" is Phantom Cynder); its exact name from any game or series ("Legendary Jet-Vac (Series
     // 2)" when there's only the one); then, for a name nothing has, the nearest spelling
     // ("Enchated" -> Enchanted), or else the figure the name ends with ("Legendary Crusher",
-    // which was never made, -> Crusher). Everything that isn't a Skylander stays, and so do the
-    // unreleased figures (below).
+    // which was never made, -> Crusher).
     enum { kSlots = 3 };  // whole figure, top half, bottom half
     static int best[kMaxPicks][kSlots];
     static int rank[kMaxPicks][kSlots];
@@ -814,67 +882,38 @@ void FigureLibrary::SortBrowse() {
         }
       }
     }
-    static unsigned char keep[kMaxFigures];
-    memset(keep, 0, sizeof(keep));
+    // The list: each roster (a picks.ini section) the running game can use, its own game's
+    // first and then back to Spyro's Adventure, each pick's figure once per roster. A picked
+    // SuperCharger brings its vehicle (Spitfire: Hot Streak; Dark Spitfire: Dark Hot Streak).
+    // After the rosters: every crystal, trap, vehicle, magic item and adventure pack the game
+    // can use (roster 0).
+    static int list_id[kMaxFigures];
+    static signed char list_roster[kMaxFigures];
+    int n = 0;
     for (int p = 0; p < pick_count_; ++p) {
       bool found = false;
       for (int k = 0; k < kSlots; ++k) {
-        if (best[p][k] >= 0) {
-          keep[best[p][k]] = 1;
-          found = true;
-        }
+        const int id = best[p][k];
+        if (id < 0) continue;
+        found = true;
+        n = AddToList(list_id, list_roster, n, id, picks_[p].roster);
+        const int vehicle = VehicleOf(id);
+        if (vehicle >= 0) n = AddToList(list_id, list_roster, n, vehicle, picks_[p].roster);
       }
       picks_[p].found = found;
       if (found) ++picks_found_;
     }
-    // Every unreleased figure this game can use, variants and all (Heartbreaker Buckshot, the
-    // Special Senseis, the Corrupted and Error Bypass dumps...), each with the regular figure it's
-    // a version of: the newest regular release of the same character whose name ends its name
-    // ("Instant Super Shot Stealth Elf" -> Super Shot Stealth Elf, "Special Air Strike" -> Air
-    // Strike), or else the newest regular release of the character (VVind-Up -> Wind-Up).
-    enum { kMaxUnreleased = 256 };
-    static int un_char[kMaxUnreleased], un_best[kMaxUnreleased], un_len[kMaxUnreleased];
-    static char un_name[kMaxUnreleased][kPickLen];
-    int un = 0;
-    for (int b = 0; b < browse_count_; ++b) {
-      const int i = browse_[b];
-      if (!IsUnreleased(i)) continue;
-      keep[i] = 1;
-      if (un == kMaxUnreleased) continue;
-      un_char[un] = CharacterId(i);
-      NormalizeBase(Name(i), un_name[un], kPickLen);
-      un_best[un] = -1;
-      un_len[un] = -1;
-      if (un_char[un] > 0) ++un;
+    for (int b = 0; b < browse_count_ && n < kMaxFigures; ++b) {
+      const int c = entries_[browse_[b]].category;
+      if (c == kCatGimmick || c == kCatSkylander) continue;
+      list_id[n] = browse_[b];
+      list_roster[n++] = 0;
     }
-    for (int b = 0; b < browse_count_ && un; ++b) {
-      const int j = browse_[b];
-      ReadRelease(j);
-      if (entries_[j].kind != 'R' || IsUnreleased(j)) continue;
-      char name[kPickLen + 8];
-      name[0] = 0;
-      for (int u = 0; u < un; ++u) {
-        if (un_char[u] != entries_[j].family) continue;
-        if (!name[0]) NormalizeBase(Name(j), name, sizeof(name));
-        const int len = EndsWith(un_name[u], name) ? (int)strlen(name) : 0;
-        const int cur = un_best[u];
-        if (cur < 0 || len > un_len[u] || (len == un_len[u] && Game(j) > Game(cur))) {
-          un_best[u] = j;
-          un_len[u] = len;
-        }
-      }
+    for (int k = 0; k < n; ++k) {
+      browse_[k] = list_id[k];
+      browse_roster_[k] = list_roster[k];
     }
-    for (int u = 0; u < un; ++u) {
-      if (un_best[u] >= 0) keep[un_best[u]] = 1;
-    }
-    int kept = 0;
-    for (int b = 0; b < browse_count_; ++b) {
-      const int i = browse_[b];
-      const int c = entries_[i].category;
-      if ((c == kCatGimmick || c == kCatSkylander) && !keep[i]) continue;
-      browse_[kept++] = i;
-    }
-    browse_count_ = kept;
+    browse_count_ = n;
   }
   if (newest_only_ && !picks_mode_ && view_game_ <= 0) {
     // The newest regular release of each character family among the figures listed so far (so a
@@ -901,16 +940,21 @@ void FigureLibrary::SortBrowse() {
     }
     browse_count_ = kept;
   }
-  // Shell sort (n <= 2560): by type, element and name; or folder, element and name.
+  // Shell sort (n <= 2560): by type, element and name; or folder, element and name. My Picks:
+  // roster by roster first, the running game's roster first.
   for (int gap = browse_count_ / 2; gap > 0; gap /= 2) {
     for (int i = gap; i < browse_count_; ++i) {
       const int v = browse_[i];
+      const signed char r = browse_roster_[i];
       int j = i;
-      while (j >= gap && Before(v, browse_[j - gap])) {
+      while (j >= gap && (r != browse_roster_[j - gap] ? r > browse_roster_[j - gap]
+                                                       : Before(v, browse_[j - gap]))) {
         browse_[j] = browse_[j - gap];
+        browse_roster_[j] = browse_roster_[j - gap];
         j -= gap;
       }
       browse_[j] = v;
+      browse_roster_[j] = r;
     }
   }
 }
@@ -918,7 +962,7 @@ void FigureLibrary::SortBrowse() {
 bool FigureLibrary::Before(int a, int b) const {
   const Entry& x = entries_[a];
   const Entry& y = entries_[b];
-  int c = sort_by_type_ ? x.category - y.category : CompareDir(x.rel, y.rel);
+  int c = sort_by_type_ ? TypeRank(x.category) - TypeRank(y.category) : CompareDir(x.rel, y.rel);
   if (c) return c < 0;
   // Elements in the games' order; figures without one (items, chests) after them.
   const int ex = x.element > 0 ? x.element : 99, ey = y.element > 0 ? y.element : 99;

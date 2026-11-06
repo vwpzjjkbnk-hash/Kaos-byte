@@ -169,6 +169,38 @@ bool StartGameThread(LPTHREAD_START_ROUTINE fn, DWORD stack_bytes) {
   return true;
 }
 
+#if !defined(SKYPORTAL_SIDELOAD)
+namespace {
+sp::Lock g_game_thread_lock;
+LPTHREAD_START_ROUTINE volatile g_game_thread_fn = NULL;
+DWORD g_game_thread_stack = 0;
+}  // namespace
+
+void RequestGameThread(LPTHREAD_START_ROUTINE fn, DWORD stack_bytes) {
+  sp::Guard g(g_game_thread_lock);
+  g_game_thread_stack = stack_bytes;
+  g_game_thread_fn = fn;
+}
+
+void ServeGameThread() {
+  if (!g_game_thread_fn) return;  // (the usual case: a quick look, no lock)
+  LPTHREAD_START_ROUTINE fn;
+  DWORD stack;
+  {
+    sp::Guard g(g_game_thread_lock);
+    fn = g_game_thread_fn;
+    stack = g_game_thread_stack;
+    g_game_thread_fn = NULL;
+  }
+  if (fn && !StartGameThread(fn, stack)) Log("Couldn't start a thread in the game");
+}
+
+void CancelGameThread() {
+  g_game_thread_lock.Reinit();  // (a game thread may have ended holding it)
+  g_game_thread_fn = NULL;
+}
+#endif
+
 bool MountDrive(const char* drive, const char* device, bool system_link) {
   char link[MAX_PATH];
   // "\\System??\\%s" (all processes) or "\\??\\%s" (this title only)

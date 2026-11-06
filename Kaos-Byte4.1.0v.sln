@@ -1,0 +1,23 @@
+
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Kaos-Byte4.1.0v", "Kaos-Byte4.1.0v.vcxproj", "{5C3B7E52-1D4A-4C6B-9A3E-7F21B0D4E8A1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Xbox 360 = Debug|Xbox 360
+		Release|Xbox 360 = Release|Xbox 360
+		Release_PeerPressure|Xbox 360 = Release_PeerPressure|Xbox 360
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5C3B7E52-1D4A-4C6B-9A3E-7F21B0D4E8A1}.Debug|Xbox 360.ActiveCfg = Debug|Xbox 360
+		{5C3B7E52-1D4A-4C6B-9A3E-7F21B0D4E8A1}.Debug|Xbox 360.Build.0 = Debug|Xbox 360
+		{5C3B7E52-1D4A-4C6B-9A3E-7F21B0D4E8A1}.Release|Xbox 360.ActiveCfg = Release|Xbox 360
+		{5C3B7E52-1D4A-4C6B-9A3E-7F21B0D4E8A1}.Release|Xbox 360.Build.0 = Release|Xbox 360
+		{5C3B7E52-1D4A-4C6B-9A3E-7F21B0D4E8A1}.Release_PeerPressure|Xbox 360.ActiveCfg = Release_PeerPressure|Xbox 360
+		{5C3B7E52-1D4A-4C6B-9A3E-7F21B0D4E8A1}.Release_PeerPressure|Xbox 360.Build.0 = Release_PeerPressure|Xbox 360
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

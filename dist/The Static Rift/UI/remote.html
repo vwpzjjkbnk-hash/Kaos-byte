@@ -1,0 +1,1241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07112b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Static Rift">
+<meta name="format-detection" content="telephone=no">
+<title>The Static Rift</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307112b'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%233d8bff' stroke-width='6'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%238fd3ff'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2307112b'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%233d8bff' stroke-width='6'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%238fd3ff'/%3E%3C/svg%3E">
+<style>
+  /* The Static Rift - phone remote (Project Kaos-Byte). Served by the plugin from
+     The Static Rift\UI\remote.html; edit freely, it's re-read on every visit.
+     Kept light on purpose so it runs on any phone browser (Safari, Chrome, Firefox, Samsung...):
+     no blur filters or see-through panels, pictures only near the screen, nothing newer than
+     iOS 12 / Chrome 70 needed. */
+  :root {
+    --navy: #07112b;
+    --panel: #111f43;
+    --line: rgba(140, 180, 255, 0.16);
+    --text: #eef3ff;
+    --dim: #93a4c8;
+    --blue: #3d8bff;
+    --green: #4fd65a;
+    --amber: #ffc04d;
+    --red: #ff7b7b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: #07112b; color: #eef3ff; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh; overflow-x: hidden; -webkit-text-size-adjust: 100%;
+  }
+  button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; -webkit-appearance: none; }
+  img { display: block; }
+
+  /* The header: a picture behind it (scrolls away with it; never fixed, never filtered). */
+  .head { position: relative; overflow: hidden; padding: 10px 14px 0; padding-top: calc(env(safe-area-inset-top, 0px) + 10px); }
+  #bg { position: absolute; top: 0; left: 0; right: 0; height: 320px; background: #07112b center top / cover no-repeat; opacity: .55; }
+  #bgfade { position: absolute; top: 0; left: 0; right: 0; height: 322px;
+            background: linear-gradient(180deg, rgba(7,17,43,.35) 0, rgba(7,17,43,.85) 60%, #07112b 100%); }
+  .head > header, .head > .rift { position: relative; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0; }
+  .brand { font-size: 12px; font-weight: 800; letter-spacing: .32em; color: #cfe0ff; white-space: nowrap; }
+  .pill { display: flex; align-items: center; font-size: 12px; font-weight: 600; white-space: nowrap;
+          background: rgba(79,214,90,.13); color: #a9f0b0; padding: 6px 11px; border-radius: 99px;
+          border: 1px solid rgba(79,214,90,.3); max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+  .pill i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #4fd65a; margin-right: 7px; }
+  .pill.wait { background: rgba(255,192,77,.12); color: #ffd98f; border-color: rgba(255,192,77,.35); }
+  .pill.wait i { background: #ffc04d; }
+  .pill.off { background: rgba(255,123,123,.12); color: #ffb3b3; border-color: rgba(255,123,123,.3); }
+  .pill.off i { background: #ff7b7b; }
+
+  .rift { margin: 12px 0 0; padding: 12px; background: #111f43; border: 1px solid rgba(140,180,255,.16); border-radius: 18px; }
+  .rift-top { display: flex; justify-content: space-between; align-items: center; }
+  .rift-top .tools { display: flex; align-items: center; }
+  #quick { font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 99px; white-space: nowrap;
+           border: 1px solid rgba(140,180,255,.25); color: #b8c5e3; background: rgba(255,255,255,.05); }
+  #quick.lit { background: #ffc04d; border-color: #ffc04d; color: #2a1c00; }
+  .rift h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .16em; color: #93a4c8; }
+  .rift h3 b { color: #eef3ff; font-weight: 700; margin-left: 4px; letter-spacing: .04em; }
+  #clear { font-size: 12.5px; font-weight: 600; color: #ff7b7b; padding: 2px 0 2px 10px; }
+  #clear[disabled] { color: #5d6a8a; }
+  .onrow { display: flex; overflow-x: auto; margin-top: 10px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .onrow::-webkit-scrollbar { display: none; }
+  .chip { flex: 0 0 auto; width: 172px; display: flex; align-items: center; margin-right: 8px;
+          padding: 6px; background: rgba(255,255,255,.05); border-radius: 12px; border: 1px solid rgba(255,255,255,.06); }
+  .chip img { flex: none; width: 36px; height: 36px; border-radius: 9px; background: #0d1a3a; object-fit: cover; }
+  .chip .t { min-width: 0; flex: 1; margin: 0 8px; }
+  .chip .n { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip .s { font-size: 10.5px; color: #93a4c8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip .x { flex: none; width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,.08);
+             font-size: 13px; line-height: 28px; text-align: center; color: #c9d4ee; }
+  .chip.pending { opacity: .55; }
+  .empty { margin-top: 8px; font-size: 13px; color: #93a4c8; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; background: #6f7ea3; }
+
+  /* The bar that stays at the top: search and the lists. */
+  .bar { position: -webkit-sticky; position: sticky; top: 0; z-index: 5; padding: 10px 14px 8px; background: #07112b;
+         box-shadow: 0 10px 12px -8px #07112b; }
+  .search { height: 42px; border-radius: 13px; background: #121e3d; border: 1px solid rgba(140,180,255,.16);
+            display: flex; align-items: center; padding: 0 6px 0 13px; }
+  .search svg { flex: none; width: 17px; height: 17px; color: #7f90b5; margin-right: 9px; }
+  .search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: #eef3ff;
+                  font: inherit; font-size: 16px; padding: 0; -webkit-appearance: none; border-radius: 0; }
+  .search input::placeholder { color: #7f90b5; }
+  #mini { flex: none; display: none; font-size: 12px; font-weight: 700; color: #a9f0b0; background: rgba(79,214,90,.14);
+          border: 1px solid rgba(79,214,90,.35); padding: 5px 10px; border-radius: 99px; }
+  body.scrolled #mini.has { display: block; }
+  #tabs { display: flex; margin-top: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
+  #tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: none; margin-right: 7px; padding: 7px 12px; border-radius: 99px; font-size: 13px; font-weight: 600; color: #b8c5e3;
+         background: rgba(255,255,255,.06); }
+  .tab.active { background: #3d8bff; color: #fff; }
+  .tab.new { background: none; border: 1px dashed rgba(140,180,255,.35); color: #93a4c8; padding: 6px 12px; }
+  #listbar { display: none; align-items: center; padding: 2px 16px 0; min-height: 34px; }
+  #listbar.shown { display: flex; }
+  #listbar .lt { flex: 1; min-width: 0; font-size: 13px; color: #93a4c8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #listbar .lt b { color: #eef3ff; font-weight: 700; }
+  #listbar button { flex: none; margin-left: 8px; font-size: 12.5px; font-weight: 600; color: #b8c5e3; padding: 5px 10px;
+                    border-radius: 99px; background: rgba(255,255,255,.06); }
+  #listbar button.danger { color: #ff9b9b; }
+
+  main { padding: 0 14px 30px; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 30px); }
+  .sec { display: flex; align-items: center; margin: 16px 2px 9px; }
+  .sec .ic { flex: none; width: 24px; height: 24px; margin-right: 9px; }
+  .sec .ic:not([src]) { visibility: hidden; }
+  .sec .t { font-size: 14px; font-weight: 700; }
+  .sec .t span { color: #93a4c8; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-gap: 9px; }
+  @media (min-width: 560px) { .grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); } }
+  .card, .chip { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .card { position: relative; display: block; width: 100%; text-align: left; border-radius: 14px; overflow: hidden;
+          background: #0f1b39; border: 1px solid rgba(255,255,255,.07); }
+  .card .pic { position: relative; width: 100%; padding-top: 100%; background: #0d1a3a; }
+  .card .pic img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+  .card .pic img:not([src]) { visibility: hidden; }
+  .card .meta { padding: 7px 8px 8px; }
+  .card .n { font-size: 12.5px; font-weight: 700; line-height: 1.2; height: 2.4em; overflow: hidden;
+             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+  .card .nk, .chip .s.nk { color: #ffd86b; font-weight: 700; }
+  .card.nick .n { height: auto; }  /* the name only as tall as it is, the nickname right under it */
+  .card .nk { font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .s { font-size: 10.5px; color: #93a4c8; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card.on { border-color: rgba(79,214,90,.7); }
+  .star { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%; display: none;
+          background: rgba(7,17,43,.78); color: #ffd86b; font-size: 13px; line-height: 22px; text-align: center; }
+  .card.fav .star { display: block; }
+  .badge { position: absolute; top: 6px; left: 6px; font-size: 9.5px; font-weight: 800; letter-spacing: .06em;
+           background: #4fd65a; color: #052a0a; padding: 3px 6px; border-radius: 6px; display: none; }
+  .card.on .badge { display: block; }
+  .card.busy { opacity: .6; }
+  .card:active { opacity: .8; }
+  #status { text-align: center; color: #93a4c8; font-size: 13px; padding: 28px 10px; }
+
+  #shade { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 10; background: rgba(3,8,22,.62);
+           opacity: 0; visibility: hidden; transition: opacity .2s, visibility .2s; }
+  #sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; padding: 10px 18px 22px;
+           padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+           background: #10204a; border-radius: 26px 26px 0 0; border-top: 1px solid rgba(140,180,255,.25);
+           -webkit-transform: translateY(105%); transform: translateY(105%); transition: transform .22s ease;
+           max-width: 640px; margin: 0 auto; visibility: hidden; }
+  body.sheet #shade { opacity: 1; visibility: visible; }
+  body.sheet #sheet { -webkit-transform: none; transform: none; visibility: visible; }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.25); margin: 0 auto 14px; }
+  .hero { display: flex; }
+  #art { flex: none; width: 128px; height: 200px; border-radius: 16px; background: #0d1a3a; object-fit: cover;
+         object-position: center top; border: 3px solid #7a8ba8; margin-right: 16px; }
+  .info { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 2px; }
+  #kicker { font-size: 11px; font-weight: 700; letter-spacing: .16em; color: #93a4c8; }
+  #sname { font-size: 25px; font-weight: 800; line-height: 1.08; margin: 6px 0 4px; word-break: break-word; }
+  #snick { display: block; text-align: left; font-size: 15px; font-weight: 700; color: #ffd86b; margin: 0 0 10px;
+           padding: 2px 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #snick.none { color: #93a4c8; font-weight: 600; font-size: 13px; }
+  .fact { display: flex; align-items: center; font-size: 13px; color: #cdd8f2; font-weight: 500; min-height: 20px; margin-bottom: 8px; }
+  .fact .k { flex: none; color: #93a4c8; width: 58px; font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+  .fact img { flex: none; width: 20px; height: 20px; margin-right: 8px; }
+  .fact img:not([src]) { display: none; }
+  #logo { height: 34px; max-width: 100%; object-fit: contain; object-position: left center; margin-top: 2px; }
+  #logo:not([src]) { visibility: hidden; }
+  #sstate { margin-top: auto; padding-top: 10px; font-size: 12.5px; font-weight: 600; color: #93a4c8; }
+  #sstate.on { color: #a9f0b0; }
+  #sstate.on .dot { background: #4fd65a; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 10px; margin-top: 18px; }
+  .btn { height: 52px; border-radius: 15px; font-size: 15px; font-weight: 700; background: rgba(255,255,255,.08);
+         border: 1px solid rgba(140,180,255,.16); }
+  .btn.primary { grid-column: 1 / -1; height: 56px; font-size: 16px; border: 0; background: #3d8bff; }
+  .btn[disabled] { opacity: .38; }
+  .btns2 { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 10px; margin-top: 10px; }
+  .btn.small { height: 44px; font-size: 14px; }
+  #fav.lit { color: #ffd86b; border-color: rgba(255,216,107,.5); }
+  /* Little windows: a name to type, a question, the lists a figure is in. */
+  #dshade { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 30; background: rgba(3,8,22,.7); display: none; }
+  .dlg { position: fixed; left: 16px; right: 16px; top: 14%; z-index: 31; max-width: 420px; margin: 0 auto; display: none;
+         background: #10204a; border: 1px solid rgba(140,180,255,.3); border-radius: 20px; padding: 18px 18px 16px; }
+  body.dlg-open #dshade { display: block; }
+  .dlg.shown { display: block; }
+  #dlg { z-index: 32; }  /* over the list picker (a new list made from it) */
+  .dlg h4 { margin: 0 0 6px; font-size: 17px; font-weight: 800; }
+  .dlg p { margin: 0 0 12px; font-size: 13px; color: #93a4c8; line-height: 1.4; }
+  #dinput { display: block; width: 100%; height: 46px; border-radius: 12px; border: 1px solid rgba(255,216,107,.45);
+            background: #071028; color: #ffd86b; font: inherit; font-size: 17px; font-weight: 700; padding: 0 12px;
+            outline: 0; -webkit-appearance: none; }
+  #dcount { text-align: right; font-size: 11px; color: #93a4c8; margin-top: 4px; min-height: 14px; }
+  #derr { font-size: 12.5px; color: #ff9b9b; min-height: 16px; margin-top: 2px; }
+  .drow { display: flex; margin-top: 12px; }
+  .drow button { flex: 1; height: 44px; border-radius: 13px; font-size: 15px; font-weight: 700; margin-left: 8px;
+                 background: rgba(255,255,255,.08); border: 1px solid rgba(140,180,255,.16); }
+  .drow button:first-child { margin-left: 0; }
+  .drow button.go { background: #3d8bff; border: 0; }
+  .drow button.danger { background: #8a2430; border: 0; }
+  #plist { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 4px -4px 0; }
+  .prow { display: flex; align-items: center; width: 100%; text-align: left; padding: 11px 6px; border-radius: 12px; font-size: 15px; font-weight: 600; }
+  .prow .box { flex: none; width: 24px; height: 24px; border-radius: 7px; margin-right: 12px; border: 2px solid rgba(140,180,255,.45);
+               text-align: center; line-height: 20px; font-size: 14px; color: #fff; }
+  .prow.in .box { background: #3d8bff; border-color: #3d8bff; }
+  .prow .pn { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prow .pc { flex: none; font-size: 12px; color: #93a4c8; margin-left: 8px; }
+  .prow.add { color: #8fc0ff; }
+  .note { font-size: 11.5px; color: #93a4c8; text-align: center; margin-top: 12px; line-height: 1.4; }
+  #toast { position: fixed; left: 14px; right: 14px; top: 12px; top: calc(env(safe-area-inset-top, 0px) + 12px);
+           z-index: 20; padding: 12px 14px; border-radius: 14px; background: #183420; border: 1px solid rgba(79,214,90,.45);
+           font-size: 14px; font-weight: 600; color: #c9f5ce; -webkit-transform: translateY(-180%); transform: translateY(-180%);
+           transition: transform .22s ease; max-width: 600px; margin: 0 auto; pointer-events: none; }
+  #toast.bad { background: #46181e; border-color: rgba(255,123,123,.5); color: #ffd0d0; }
+  #toast.show { -webkit-transform: none; transform: none; }
+</style>
+</head>
+<body>
+<div class="head">
+  <div id="bg"></div><div id="bgfade"></div>
+  <header>
+    <div class="brand">THE STATIC RIFT</div>
+    <div class="pill wait" id="pill"><i></i><span id="pilltext">Connecting...</span></div>
+  </header>
+  <section class="rift">
+    <div class="rift-top"><h3>ON THE RIFT<b id="count"></b></h3>
+      <div class="tools"><button id="quick" type="button" title="Quick tap: one tap swaps a figure in">&#9889; Quick tap</button>
+      <button id="clear" type="button" disabled>Clear all</button></div></div>
+    <div class="onrow" id="on"></div>
+  </section>
+</div>
+<div class="bar">
+  <label class="search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" type="search" placeholder="Search figures" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    <button id="mini" type="button"></button>
+  </label>
+  <nav id="tabs"></nav>
+</div>
+<div id="listbar"><div class="lt" id="listtitle"></div><button id="lrename" type="button">Rename</button><button id="ldelete" class="danger" type="button">Delete</button></div>
+<main id="list"></main>
+<div id="status">Loading the figures...</div>
+
+<div id="shade"></div>
+<section id="sheet" aria-hidden="true">
+  <div class="grab"></div>
+  <div class="hero">
+    <img id="art" alt="">
+    <div class="info">
+      <div id="kicker">FIGURE</div>
+      <div id="sname"></div>
+      <button id="snick" type="button"></button>
+      <div class="fact" id="felement"><span class="k">ELEMENT</span><img id="fic" alt=""><span id="fel"></span></div>
+      <div class="fact" id="fseries"><span class="k">SERIES</span><span id="fse"></span></div>
+      <div class="fact"><span class="k">FROM</span><span id="fga"></span></div>
+      <img id="logo" alt="">
+      <div id="sstate"><span class="dot"></span><span id="sstatetext"></span></div>
+    </div>
+  </div>
+  <div class="btns">
+    <button class="btn primary" id="add" type="button">Put on the Rift</button>
+    <button class="btn" id="swap" type="button">Swap in</button>
+    <button class="btn" id="remove" type="button">Take off</button>
+  </div>
+  <div class="btns2">
+    <button class="btn small" id="fav" type="button">&#9734; Favorite</button>
+    <button class="btn small" id="lists" type="button">&#9776; Lists</button>
+  </div>
+  <div class="note">Swap in takes off the figures of the same kind first. Game progress is saved into the figure's file, as with the menu.</div>
+</section>
+<div id="dshade"></div>
+<section class="dlg" id="dlg" role="dialog" aria-modal="true">
+  <h4 id="dtitle"></h4>
+  <p id="dtext"></p>
+  <input id="dinput" type="text" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" enterkeyhint="done">
+  <div id="dcount"></div>
+  <div id="derr"></div>
+  <div class="drow"><button id="dextra" type="button"></button><button id="dcancel" type="button">Cancel</button><button id="dok" class="go" type="button">Save</button></div>
+</section>
+<section class="dlg" id="pick" role="dialog" aria-modal="true">
+  <h4 id="ptitle"></h4>
+  <div id="plist"></div>
+  <div class="drow"><button id="pdone" class="go" type="button">Done</button></div>
+</section>
+<div id="toast"></div>
+
+<script>
+"use strict";
+(function () {
+var $ = function (id) { return document.getElementById(id); };
+var GAME_NAMES = ["", "Spyro's Adventure", "Giants", "Swap Force", "Trap Team", "SuperChargers", "Imaginators"];
+var ACCENTS = ["#7a8ba8", "#8fd3ff", "#c08a4a", "#ff6a2b", "#2f8dff", "#b25bff", "#ffb21f", "#4fd65a", "#9fa8c0", "#fff3a0", "#7f5bc9"];
+function now() { return Date.now(); }
+function store(key, value) {  // remembered on this phone only; fine if the browser won't
+  try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) {}
+  return null;
+}
+function hasClass(el, c) { return (" " + el.className + " ").indexOf(" " + c + " ") >= 0; }
+function setClass(el, c, on) {
+  var has = hasClass(el, c);
+  if (on && !has) el.className = (el.className ? el.className + " " : "") + c;
+  else if (!on && has) el.className = (" " + el.className + " ").replace(" " + c + " ", " ").replace(/^\s+|\s+$/g, "");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Talking to the Xbox
+// ---------------------------------------------------------------------------------------------
+function urlFor(path) { return "/" + path.split("/").map(encodeURIComponent).join("/"); }
+// fetch, given up on after `ms` (the Wi-Fi can drop a packet and leave a request hanging).
+function fetchWithin(url, ms, opts) {
+  opts = opts || {};
+  var ctl = window.AbortController ? new AbortController() : null;
+  if (ctl) opts.signal = ctl.signal;
+  return new Promise(function (resolve, reject) {
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); reject(new Error("timed out")); }, ms);
+    fetch(url, opts).then(function (r) { clearTimeout(timer); resolve(r); }, function (e) { clearTimeout(timer); reject(e); });
+  });
+}
+function api(path, post, tries, ms) {
+  tries = tries || 1; ms = ms || 8000;
+  function once() {
+    return fetchWithin(path, ms, { method: post ? "POST" : "GET", cache: "no-store" }).then(function (r) {
+      if (!r.ok) { var e = new Error("HTTP " + r.status); e.status = r.status; throw e; }
+      return r.json();
+    });
+  }
+  function attempt(n) {
+    return once().catch(function (err) {
+      if (n <= 1 || err.status === 404 || err.status === 405) throw err;
+      return new Promise(function (res) { setTimeout(res, 400); }).then(function () { return attempt(n - 1); });
+    });
+  }
+  return attempt(tries);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pictures. Small phone copies (The Static Rift\Phone, JPG/PNG) shown in plain <img> tags the
+// browser manages itself. Only cards near the screen hold one: a card scrolled far away gives its
+// picture back, so memory stays the same however far you scroll. A dropped connection is retried;
+// a figure without a phone copy gets the menu's QOI picture, decoded here.
+// ---------------------------------------------------------------------------------------------
+function phoneFor(path) {
+  if (/^Images\//.test(path)) return path.replace(/^Images\//, "Phone/").replace(/\.qoi$/i, ".jpg");
+  if (/^UI\/(elements|games)\//.test(path)) return path.replace(/^UI\//, "Phone/").replace(/\.qoi$/i, ".png");
+  return "";
+}
+function decodeQoi(buf) {
+  var b = new Uint8Array(buf);
+  if (b.length < 22 || b[0] !== 113 || b[1] !== 111 || b[2] !== 105 || b[3] !== 102) throw new Error("not QOI");
+  var w = (b[4] << 24 | b[5] << 16 | b[6] << 8 | b[7]) >>> 0, h = (b[8] << 24 | b[9] << 16 | b[10] << 8 | b[11]) >>> 0;
+  if (!w || !h || w > 4096 || h > 4096) throw new Error("bad size");
+  var c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  var cx = c.getContext("2d"), img = cx.createImageData(w, h), px = img.data, index = new Uint8Array(256);
+  var r = 0, g = 0, bl = 0, a = 255, p = 14, run = 0, end = b.length - 8;
+  for (var o = 0; o < px.length; o += 4) {
+    if (run > 0) run--;
+    else if (p < end) {
+      var b1 = b[p++];
+      if (b1 === 0xfe) { r = b[p++]; g = b[p++]; bl = b[p++]; }
+      else if (b1 === 0xff) { r = b[p++]; g = b[p++]; bl = b[p++]; a = b[p++]; }
+      else if ((b1 & 0xc0) === 0x00) { var i0 = b1 * 4; r = index[i0]; g = index[i0 + 1]; bl = index[i0 + 2]; a = index[i0 + 3]; }
+      else if ((b1 & 0xc0) === 0x40) { r = (r + ((b1 >> 4) & 3) - 2) & 255; g = (g + ((b1 >> 2) & 3) - 2) & 255; bl = (bl + (b1 & 3) - 2) & 255; }
+      else if ((b1 & 0xc0) === 0x80) { var b2 = b[p++], dg = (b1 & 0x3f) - 32;
+        r = (r + dg - 8 + ((b2 >> 4) & 15)) & 255; g = (g + dg) & 255; bl = (bl + dg - 8 + (b2 & 15)) & 255; }
+      else run = b1 & 0x3f;
+      var i1 = ((r * 3 + g * 5 + bl * 7 + a * 11) % 64) * 4;
+      index[i1] = r; index[i1 + 1] = g; index[i1 + 2] = bl; index[i1 + 3] = a;
+    }
+    px[o] = r; px[o + 1] = g; px[o + 2] = bl; px[o + 3] = a;
+  }
+  cx.putImageData(img, 0, 0);
+  var url = c.toDataURL("image/png");  // a plain data URL: nothing to free later
+  c.width = c.height = 0;              // hand the canvas memory back now (iOS counts it)
+  return url;
+}
+function loadQoi(path) {
+  return fetchWithin(urlFor(path), 20000).then(function (r) {
+    if (!r.ok) { var e = new Error("HTTP " + r.status); e.status = r.status; throw e; }
+    return r.arrayBuffer();
+  }).then(decodeQoi);
+}
+var qoiCache = {}, qoiOrder = [];  // the few full cards (figure sheet) decoded lately
+function bigPicture(path) {
+  if (qoiCache[path]) return Promise.resolve(qoiCache[path]);
+  return loadQoi(path).then(function (url) {
+    qoiCache[path] = url; qoiOrder.push(path);
+    while (qoiOrder.length > 4) delete qoiCache[qoiOrder.shift()];
+    return url;
+  });
+}
+
+// The picture queue: three at a time, the ones on the screen first, then the nearest ones.
+var queue = [], loading = 0, noPhoneCopy = {};
+function want(img, path) {          // show `path` (a menu picture path) in this <img>
+  if (!path) return;
+  if (img._path === path && /^(shown|queued|loading|waiting)$/.test(img._state || "")) return;
+  img._path = path; img._tries = 0; img._state = "queued";
+  queue.push(img);
+  pump();
+}
+function drop(img) {                // scrolled far away: give the picture back
+  if (img._state === "queued" || img._state === "waiting") img._state = "dropped";
+  else if (img._state === "shown") { img.removeAttribute("src"); img._state = "dropped"; }
+}
+function pruneQueue() {             // pictures of cards no longer on the page
+  var keep = [];
+  for (var i = 0; i < queue.length; i++) {
+    if (document.documentElement.contains(queue[i])) keep.push(queue[i]);
+    else queue[i]._state = "dropped";
+  }
+  queue = keep;
+}
+function distance(img) {             // how far from the screen (0: on it)
+  var r = img.getBoundingClientRect(), h = window.innerHeight || 700;
+  if (!r.width && !r.height) return 1e6;  // not shown at all
+  return r.bottom < 0 ? -r.bottom : r.top > h ? r.top - h : 0;
+}
+function next() {
+  var best = -1, bestD = 1e9;
+  for (var i = queue.length - 1; i >= 0; i--) {  // pictures no longer wanted
+    if (queue[i]._state !== "queued") queue.splice(i, 1);
+  }
+  if (queue.length > 300) return queue.pop();   // too many to sort: newest first
+  for (var k = queue.length - 1; k >= 0; k--) {  // the nearest; the newest among equals
+    var d = distance(queue[k]);
+    if (d < bestD) { bestD = d; best = k; if (d === 0) break; }
+  }
+  return best < 0 ? null : queue.splice(best, 1)[0];
+}
+function pump() {
+  while (loading < 3 && queue.length) {
+    var img = next();
+    if (!img) break;
+    loading++;
+    img._state = "loading";
+    loadInto(img);
+  }
+}
+function finished(img, ok, retryNow) {
+  loading--;
+  if (img._state === "loading") {
+    if (ok) {
+      if (img._near === false) { img.removeAttribute("src"); img._state = "dropped"; }  // scrolled past meanwhile
+      else img._state = "shown";
+    } else if (retryNow) {
+      img._state = "queued"; queue.push(img);
+    } else if (++img._tries < 5) {
+      img._state = "waiting";
+      setTimeout(function () {
+        if (img._state !== "waiting") return;
+        img._state = "queued"; queue.push(img); pump();
+      }, 600 * img._tries);
+    } else img._state = "failed";
+  }
+  pump();
+}
+function loadInto(img) {
+  var path = img._path, small = phoneFor(path);
+  if (small && !noPhoneCopy[path]) {
+    img.onload = function () { img.onload = img.onerror = null; finished(img, true); };
+    img.onerror = function () {
+      img.onload = img.onerror = null;
+      img.removeAttribute("src");
+      // Is there no phone copy of this one, or did the connection drop? Ask.
+      fetchWithin(urlFor(small), 8000, { cache: "no-store" }).then(function (r) {
+        if (r.status === 404) { noPhoneCopy[path] = true; finished(img, false, true); }
+        else finished(img, false);
+      }, function () { finished(img, false); });
+    };
+    img.src = urlFor(small);
+    return;
+  }
+  loadQoi(path).then(function (url) {
+    if (img._path === path && img._state === "loading") img.src = url;
+    finished(img, true);
+  }, function (err) {
+    if (err && err.status === 404) img._tries = 99;  // there's no picture at all
+    finished(img, false);
+  });
+}
+// Cards in or near the screen get their picture; cards far away give it back.
+var nearby = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
+  for (var i = 0; i < entries.length; i++) {
+    var img = entries[i].target;
+    img._near = entries[i].isIntersecting;
+    if (img._near) want(img, img._want);
+    else drop(img);
+  }
+}, { rootMargin: "1200px 0px" }) : null;
+function watch(img, path) {
+  img._want = path;
+  if (nearby) nearby.observe(img); else want(img, path);
+}
+function forgetCards() {            // the list is about to be emptied
+  if (nearby) nearby.disconnect();
+  cardsById = {};
+  pruneQueue();
+}
+
+// ---------------------------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------------------------
+var state = null, view = 0, items = [], byId = {}, cardsById = {}, onSet = {}, current = null, listToken = 0;
+// What you just did, shown straight away until the Xbox's next word: id -> { on, done }.
+var pending = {};
+var rendered = 0, lastFilter = null, quick = store("rift-quick") === "1";
+// Nicknames and lists (Favorites = view 8, then your own), from GET /api/meta whenever the Xbox's
+// "nrev" says they changed; what you change here shows at once.
+var meta = { rev: 0, nicks: {}, lists: [] }, metaLoading = false, wantView = -1, viewsKey = "";
+var FAV = 8, NICK_MAX = 20, LIST_MAX = 24;
+
+function nickOf(id) { return meta.nicks[id] || ""; }
+function listOf(v) { for (var i = 0; i < meta.lists.length; i++) if (meta.lists[i].view === v) return meta.lists[i]; return null; }
+function inList(v, id) { var l = listOf(v); return !!(l && l.has[id]); }
+function isListView(v) { return v >= FAV; }
+// What the Xbox keeps of a typed name: printable ASCII (what its menu's font has), single spaces,
+// nothing around it, at most `max` characters; a list's name without [ and ].
+function cleanText(t, max, listName) {
+  var out = "", space = false;
+  for (var i = 0; i < (t || "").length && out.length < max; i++) {
+    var c = t.charCodeAt(i);
+    if (c === 32 || c === 9) { space = out.length > 0; continue; }
+    if (c < 33 || c > 126) continue;
+    if (listName && (c === 91 || c === 93)) continue;
+    if (space) { if (out.length + 2 > max) break; out += " "; space = false; }
+    out += t.charAt(i);
+  }
+  return out;
+}
+function quoted(n) { return "\u201c" + n + "\u201d"; }
+
+function elementName(e) { return (state && state.elements[e]) || ""; }
+function elementIcon(e) { var n = elementName(e); return n ? "UI/elements/" + n.toLowerCase() + ".qoi" : ""; }
+function sub(f) { return f.series || GAME_NAMES[f.game] || ""; }
+function figure(a) { return { id: a[0], name: a[1], element: a[2], series: a[3], game: a[4], pic: a[5] }; }
+var toastTimer = 0;
+function toast(msg, bad) {
+  var t = $("toast");
+  t.textContent = msg; t.className = (bad ? "bad " : "") + "show";
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.className = bad ? "bad" : ""; }, bad ? 3200 : 1600);
+}
+function setPill(kind, text) {
+  var cls = "pill" + (kind ? " " + kind : "");
+  if ($("pill").className !== cls) $("pill").className = cls;
+  if ($("pilltext").textContent !== text) $("pilltext").textContent = text;
+}
+
+function applyState(s) {
+  var first = !state, changed = state && (state.game !== s.game || state.product !== s.product);
+  state = s;
+  heard = now();
+  if (live || pollTimer || first) setPill("", s.gameName);
+  Object.keys(pending).forEach(function (id) { if (pending[id].done) delete pending[id]; });
+  renderRift();
+  if (s.nrev !== undefined && s.nrev !== meta.rev) loadMeta();
+  var key = JSON.stringify(s.views);
+  if (!first && !changed && key !== viewsKey) {  // a list was made, renamed or deleted
+    viewsKey = key;
+    var here = s.views.some(function (v) { return v[0] === view; });
+    var go = wantView >= 0 && s.views.some(function (v) { return v[0] === wantView; });
+    if (go) { view = wantView; wantView = -1; }
+    renderTabs();
+    if (go || !here) { if (!here && !go) view = 0; loadList(); }
+  }
+  viewsKey = key;
+  if (first || changed) {
+    renderTabs(); loadList();
+    var bg = new Image();
+    bg.onload = function () { $("bg").style.backgroundImage = "url(\"" + bg.src + "\")"; };
+    bg.src = urlFor("Phone/background.jpg");
+  }
+}
+function isOn(id) { return pending[id] ? pending[id].on : !!onSet[id]; }
+var chipsById = {}, emptyNote = null;
+function renderRift() {
+  var box = $("on"), list = [], seen = {};
+  onSet = {};
+  (state ? state.rift : []).forEach(function (a) {
+    var f = figure(a);
+    onSet[f.id] = true;
+    if (!seen[f.id] && isOn(f.id)) { seen[f.id] = true; list.push(f); }
+  });
+  // Figures you just put on that the Xbox hasn't shown yet (a moment).
+  Object.keys(pending).forEach(function (key) {
+    var id = +key;
+    if (pending[key].on && !seen[id] && byId[id]) { seen[id] = true; var f = byId[id]; list.push({ id: id, name: f.name, element: f.element, series: f.series, game: f.game, pic: f.pic, coming: true }); }
+  });
+  $("count").textContent = list.length ? "· " + list.length : "";
+  $("mini").textContent = list.length + " on the rift";
+  $("mini").className = list.length ? "has" : "";
+  $("clear").disabled = !list.length;
+  if (!emptyNote) { emptyNote = document.createElement("div"); emptyNote.className = "empty"; }
+  emptyNote.textContent = quick ? "Quick tap is on: one tap on a figure swaps it in. Hold for details."
+                                : "Nothing on the rift. Tap a figure to put it on.";
+  if (!list.length) { if (emptyNote.parentNode !== box) box.appendChild(emptyNote); }
+  else if (emptyNote.parentNode === box) box.removeChild(emptyNote);
+  // The chips: the same elements kept (no picture flashing), new ones made, gone ones removed.
+  var keep = {};
+  list.forEach(function (f) {
+    var c = chipsById[f.id];
+    if (!c) c = chipsById[f.id] = makeChip(f);
+    keep[f.id] = true;
+    setClass(c, "pending", !!f.coming);
+    var nk = nickOf(f.id), s2 = f.coming ? "Going on..." : (nk ? quoted(nk) : sub(f));
+    if (c._sub.textContent !== s2) c._sub.textContent = s2;
+    setClass(c._sub, "nk", !f.coming && !!nk);
+    box.appendChild(c);  // in order
+  });
+  Object.keys(chipsById).forEach(function (id) {
+    if (!keep[id]) { var c = chipsById[id]; if (c.parentNode) c.parentNode.removeChild(c); delete chipsById[id]; }
+  });
+  // Only the cards whose state changed.
+  Object.keys(cardsById).forEach(function (id) {
+    var on = isOn(+id), cards = cardsById[id];
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i]._on !== on) { cards[i]._on = on; cards[i].className = cardClass(cards[i]); }
+    }
+  });
+  if (current) updateSheet();
+}
+function makeChip(f) {
+  var c = document.createElement("div");
+  c.className = "chip";
+  var img = document.createElement("img"); img.alt = "";
+  want(img, f.pic);
+  var t = document.createElement("div"); t.className = "t";
+  var n = document.createElement("div"); n.className = "n"; n.textContent = f.name;
+  var s2 = document.createElement("div"); s2.className = "s";
+  t.appendChild(n); t.appendChild(s2);
+  var x = document.createElement("button"); x.className = "x"; x.type = "button"; x.textContent = "✕";
+  x.setAttribute("aria-label", "Take off " + f.name);
+  x.onclick = function (ev) { ev.stopPropagation(); act("remove", f.id); };
+  t.onclick = img.onclick = function () { openSheet(byId[f.id] || f); };
+  c.appendChild(img); c.appendChild(t); c.appendChild(x);
+  c._sub = s2;
+  return c;
+}
+function renderTabs() {
+  var nav = $("tabs"), activeTab = null;
+  nav.textContent = "";
+  if (!state.views.some(function (v) { return v[0] === view; })) view = 0;
+  state.views.forEach(function (v) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "tab" + (v[0] === view ? " active" : "");
+    b.textContent = (v[0] === FAV ? "\u2605 " : "") + v[1];
+    b.onclick = function () {
+      if (v[0] === view) return;
+      view = v[0]; renderTabs(); loadList();
+      var bar = document.querySelector(".bar");
+      if (window.pageYOffset > bar.offsetTop) window.scrollTo(0, bar.offsetTop);
+    };
+    if (v[0] === view) activeTab = b;
+    nav.appendChild(b);
+  });
+  var add = document.createElement("button");
+  add.type = "button"; add.className = "tab new"; add.textContent = "+ New list";
+  add.onclick = function () { newList(-1); };
+  nav.appendChild(add);
+  if (activeTab && activeTab.scrollIntoView && nav.scrollWidth > nav.clientWidth) {
+    var left = activeTab.offsetLeft - nav.offsetLeft;
+    if (left < nav.scrollLeft || left + activeTab.offsetWidth > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = left - 14;
+  }
+  renderListBar();
+}
+var shownCount = 0;
+function viewName(v) { for (var i = 0; state && i < state.views.length; i++) if (state.views[i][0] === v) return state.views[i][1]; return ""; }
+function renderListBar() {
+  var bar = $("listbar"), mine = isListView(view);
+  setClass(bar, "shown", mine);
+  if (!mine) return;
+  var t = $("listtitle");
+  t.textContent = "";
+  var b = document.createElement("b"); b.textContent = (view === FAV ? "\u2605 " : "") + viewName(view);
+  t.appendChild(b);
+  t.appendChild(document.createTextNode(" \u00b7 " + shownCount + (shownCount === 1 ? " figure" : " figures")));
+  $("lrename").style.display = $("ldelete").style.display = view === FAV ? "none" : "";
+}
+function loadList() {
+  var token = ++listToken;
+  items = []; byId = {};
+  forgetCards();
+  $("list").textContent = "";
+  rendered = 0; lastFilter = null;
+  shownCount = 0; renderListBar();
+  listLoadedKey = listKey(view);
+  $("status").textContent = "Loading the figures...";
+  $("status").style.display = "";
+  var section = "";
+  function page(from) {
+    return api("/api/list?v=" + view + "&from=" + from, false, 5, 12000).then(function (r) {
+      if (token !== listToken) return;
+      r.items.forEach(function (a) {
+        if (a[7] && a[7] !== section) section = a[7];
+        var f = figure(a);
+        f.roster = a[6]; f.section = section;
+        items.push(f);
+        if (!byId[f.id]) byId[f.id] = f;
+      });
+      render();
+      if (r.next >= 0) return page(r.next);
+      shownCount = items.length; renderListBar();
+      var empty = view === FAV ? "No favorites yet. Open a figure and tap \u2606 Favorite."
+                : isListView(view) ? "Nothing in this list yet. Open a figure and tap \u2630 Lists to add it."
+                : "No figures in this list.";
+      $("status").textContent = items.length ? "" : empty;
+      $("status").style.display = items.length ? "none" : "";
+      renderRift();  // figures going on can show their names now
+    });
+  }
+  page(0).catch(function () {
+    if (token !== listToken) return;
+    $("status").textContent = "Couldn't load the list. Retrying...";
+    setTimeout(function () { if (token === listToken) loadList(); }, 2000);
+  });
+}
+function norm(s) { return (s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function render() {
+  var q = norm($("q").value), list = $("list");
+  if (q !== lastFilter) {
+    forgetCards();
+    list.textContent = ""; rendered = 0; lastFilter = q;
+  }
+  var wrap = list.lastElementChild, grid = wrap ? wrap._grid : null, sec = wrap ? wrap._section : null;
+  var frag = null;
+  for (; rendered < items.length; rendered++) {
+    var f = items[rendered];
+    if (q && norm(f.name).indexOf(q) < 0 && norm(f.series).indexOf(q) < 0 && norm(nickOf(f.id)).indexOf(q) < 0) continue;
+    if (f.section !== sec || !grid) {
+      if (frag) { grid.appendChild(frag); frag = null; }
+      sec = f.section;
+      wrap = document.createElement("div"); wrap._section = sec;
+      var h = document.createElement("div"); h.className = "sec";
+      var ic = document.createElement("img"); ic.className = "ic"; ic.alt = "";
+      var icon = sectionIcon(sec); if (icon) want(ic, icon);
+      var t = document.createElement("div"); t.className = "t";
+      var parts = sec.split(" / "), last = parts.pop();
+      if (parts.length) { t.textContent = parts.join(" / ") + " "; var sp = document.createElement("span"); sp.textContent = "/ " + last; t.appendChild(sp); }
+      else t.textContent = last;
+      h.appendChild(ic); h.appendChild(t);
+      grid = document.createElement("div"); grid.className = "grid";
+      if (isListView(view)) grid.style.marginTop = "8px";  // one section: the list bar names it
+      else wrap.appendChild(h);
+      wrap.appendChild(grid); wrap._grid = grid;
+      list.appendChild(wrap);
+    }
+    if (!frag) frag = document.createDocumentFragment();
+    frag.appendChild(card(f));
+  }
+  if (frag) grid.appendChild(frag);
+}
+function sectionIcon(sec) {
+  if (!state || !sec) return "";
+  var last = sec.split(" / ").pop(), e = state.elements.indexOf(last);
+  return e > 0 ? elementIcon(e) : "";
+}
+function cardClass(c) { return "card" + (c._on ? " on" : "") + (c._fav ? " fav" : "") + (c._nk ? " nick" : ""); }
+// The nickname line of a card (between its name and its series / game), made or taken away.
+function cardNick(c) {
+  var nk = nickOf(c._f.id);
+  if (nk) {
+    if (!c._nk) { c._nk = document.createElement("div"); c._nk.className = "nk"; c._meta.insertBefore(c._nk, c._s); c.className = cardClass(c); }
+    var q = quoted(nk);
+    if (c._nk.textContent !== q) c._nk.textContent = q;
+  } else if (c._nk) {
+    c._meta.removeChild(c._nk); c._nk = null; c.className = cardClass(c);
+  }
+}
+function card(f) {
+  var c = document.createElement("button");
+  c.type = "button";
+  c._on = isOn(f.id); c._fav = inList(FAV, f.id); c._f = f;
+  c.className = cardClass(c);
+  var pic = document.createElement("div"); pic.className = "pic";
+  var img = document.createElement("img"); img.alt = "";
+  pic.appendChild(img);
+  watch(img, f.pic);
+  var badge = document.createElement("div"); badge.className = "badge"; badge.textContent = "ON";
+  var star = document.createElement("div"); star.className = "star"; star.textContent = "\u2605";
+  var box = document.createElement("div"); box.className = "meta";
+  var n = document.createElement("div"); n.className = "n"; n.textContent = f.name;
+  var s2 = document.createElement("div"); s2.className = "s"; s2.textContent = sub(f);
+  box.appendChild(n); box.appendChild(s2);
+  c._meta = box; c._s = s2; c._nk = null;
+  cardNick(c);
+  c.appendChild(pic); c.appendChild(badge); c.appendChild(star); c.appendChild(box);
+  (cardsById[f.id] || (cardsById[f.id] = [])).push(c);
+  return c;
+}
+// One listener for every card. A tap opens the figure; with Quick tap on, a tap swaps it in at
+// once and holding it (or right-clicking) opens it.
+(function () {
+  var list = $("list"), timer = 0, held = false;
+  function cardOf(el) { while (el && el !== list) { if (el._f) return el; el = el.parentNode; } return null; }
+  list.addEventListener("touchstart", function (ev) {
+    var c = cardOf(ev.target);
+    held = false;
+    clearTimeout(timer);
+    if (c && quick) timer = setTimeout(function () { held = true; openSheet(c._f); }, 450);
+  }, { passive: true });
+  list.addEventListener("touchmove", function () { clearTimeout(timer); }, { passive: true });
+  list.addEventListener("touchcancel", function () { clearTimeout(timer); }, { passive: true });
+  list.addEventListener("touchend", function (ev) {
+    clearTimeout(timer);
+    if (!held) return;
+    if (ev.cancelable) ev.preventDefault();          // no tap after a hold...
+    setTimeout(function () { held = false; }, 500);  // ...but the next one counts
+  }, { passive: false });
+  list.addEventListener("contextmenu", function (ev) {
+    var c = cardOf(ev.target);
+    if (!c || !quick) return;
+    ev.preventDefault();
+    if (!held) openSheet(c._f);
+  });
+  list.addEventListener("click", function (ev) {
+    var c = cardOf(ev.target);
+    if (!c) return;
+    if (held) { held = false; return; }
+    if (quick && !isOn(c._f.id)) act("swap", c._f.id);
+    else openSheet(c._f);
+  });
+})();
+var searchTimer = 0;
+$("q").addEventListener("input", function () { clearTimeout(searchTimer); searchTimer = setTimeout(render, 140); });
+$("mini").onclick = function (ev) { ev.preventDefault(); window.scrollTo(0, 0); };
+var scrolled = false;
+window.addEventListener("scroll", function () {
+  var s = window.pageYOffset > 220;
+  if (s !== scrolled) { scrolled = s; setClass(document.body, "scrolled", s); }
+}, { passive: true });
+function setQuick(on) {
+  quick = on;
+  store("rift-quick", on ? "1" : "0");
+  $("quick").className = on ? "lit" : "";
+  if (state) renderRift();
+}
+$("quick").onclick = function () { setQuick(!quick); toast(quick ? "Quick tap on: tap a figure to swap it in, hold for details" : "Quick tap off"); };
+setQuick(quick);
+
+// ---------------------------------------------------------------------------------------------
+// The figure sheet
+// ---------------------------------------------------------------------------------------------
+var sheetAt = 0;
+function freshImg(id) { var i = $(id); i.removeAttribute("src"); i._path = null; i._state = ""; return i; }
+function openSheet(f) {
+  current = f;
+  sheetAt = now();
+  var art = freshImg("art");
+  want(art, f.pic);                       // the small picture at once...
+  bigPicture(f.pic).then(function (url) { // ...then the full card
+    if (current === f) { art._state = "big"; art.src = url; }
+  }, function () {});
+  art.style.borderColor = ACCENTS[f.element] || ACCENTS[0];
+  $("sname").textContent = f.name;
+  var parts = (f.section || "").split(" / ").filter(function (x) { return !/ Roster$/.test(x); });
+  if (parts.length > 1 && state && state.elements.indexOf(parts[parts.length - 1]) > 0) parts.pop();
+  $("kicker").textContent = (parts.pop() || "Figure").toUpperCase();
+  var el = elementName(f.element);
+  $("felement").style.display = el ? "" : "none";
+  $("fel").textContent = el;
+  var fic = freshImg("fic"); if (el) want(fic, elementIcon(f.element));
+  $("fseries").style.display = f.series ? "" : "none";
+  $("fse").textContent = f.series;
+  $("fga").textContent = GAME_NAMES[f.game] || "-";
+  var logo = freshImg("logo"); if (f.game) want(logo, "UI/games/" + f.game + ".qoi");
+  updateSheet();
+  setClass(document.body, "sheet", true);
+  $("sheet").setAttribute("aria-hidden", "false");
+}
+function closeSheet() {
+  current = null;
+  setClass(document.body, "sheet", false);
+  $("sheet").setAttribute("aria-hidden", "true");
+}
+function updateSheet() {
+  var on = isOn(current.id);
+  $("sstate").className = on ? "on" : "";
+  $("sstatetext").textContent = on ? "On the rift" : "Not on the rift";
+  $("add").disabled = on;
+  $("swap").disabled = on;
+  $("remove").disabled = !on;
+  var nk = nickOf(current.id);
+  $("snick").textContent = nk ? quoted(nk) + "  \u270e" : "+ Add a nickname";
+  $("snick").className = nk ? "" : "none";
+  var fav = inList(FAV, current.id);
+  $("fav").textContent = fav ? "\u2605 Favorite" : "\u2606 Favorite";
+  $("fav").className = "btn small" + (fav ? " lit" : "");
+  var n = 0;
+  for (var i = 1; i < meta.lists.length; i++) if (meta.lists[i].has[current.id]) n++;
+  $("lists").textContent = "\u2630 Lists" + (n ? " (" + n + ")" : "");
+}
+$("shade").onclick = function () { if (now() - sheetAt > 400) closeSheet(); };
+$("snick").onclick = function () { if (current) editNick(current); };
+$("fav").onclick = function () { if (current) toggleList(FAV, current.id); };
+$("lists").onclick = function () { if (current) openPicker(current); };
+$("add").onclick = function () { if (current) { act("add", current.id); closeSheet(); } };
+$("swap").onclick = function () { if (current) { act("swap", current.id); closeSheet(); } };
+$("remove").onclick = function () { if (current) { act("remove", current.id); closeSheet(); } };
+(function () {  // swipe the sheet down to close it
+  var y0 = null, s = $("sheet");
+  s.addEventListener("touchstart", function (e) { y0 = e.touches[0].clientY; }, { passive: true });
+  s.addEventListener("touchend", function (e) { if (y0 !== null && e.changedTouches[0].clientY - y0 > 70) closeSheet(); y0 = null; }, { passive: true });
+})();
+var clearArmed = 0;
+$("clear").onclick = function () {
+  if (now() - clearArmed < 3000) { clearArmed = 0; $("clear").textContent = "Clear all"; act("clear", -1); return; }
+  clearArmed = now(); $("clear").textContent = "Tap again to clear";
+  setTimeout(function () { if (clearArmed && now() - clearArmed >= 3000) { clearArmed = 0; $("clear").textContent = "Clear all"; } }, 3100);
+};
+
+// ---------------------------------------------------------------------------------------------
+// Little windows: a name to type (a nickname, a list's name) or a question to answer.
+// ---------------------------------------------------------------------------------------------
+var dlgDone = null;
+function openDialog(o) {  // { title, text, value, max, list, ok, extra, danger, onOk(value) -> msg or "", onExtra }
+  $("dtitle").textContent = o.title;
+  $("dtext").textContent = o.text || "";
+  $("dtext").style.display = o.text ? "" : "none";
+  var input = $("dinput"), typed = o.max > 0;
+  input.style.display = $("dcount").style.display = typed ? "" : "none";
+  input.value = o.value || "";
+  input.maxLength = o.max || 24;
+  input.setAttribute("autocapitalize", o.list ? "words" : "sentences");
+  $("derr").textContent = "";
+  $("dok").textContent = o.ok || "Save";
+  $("dok").className = o.danger ? "danger" : "go";
+  $("dextra").textContent = o.extra || "";
+  $("dextra").style.display = o.extra ? "" : "none";
+  function count() { $("dcount").textContent = cleanText(input.value, o.max, o.list).length + "/" + o.max; }
+  input.oninput = typed ? count : null;
+  if (typed) count();
+  dlgDone = function (which) {
+    if (which === "ok") {
+      var err = o.onOk(typed ? cleanText(input.value, o.max, o.list) : "");
+      if (err) { $("derr").textContent = err; return; }
+    } else if (which === "extra" && o.onExtra) {
+      o.onExtra();
+    }
+    closeDialog();
+  };
+  setClass(document.body, "dlg-open", true);
+  setClass($("dlg"), "shown", true);
+  if (typed) setTimeout(function () { try { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } catch (e) {} }, 60);
+}
+function closeDialog() {
+  dlgDone = null;
+  try { $("dinput").blur(); } catch (e) {}
+  setClass($("dlg"), "shown", false);
+  if (!hasClass($("pick"), "shown")) setClass(document.body, "dlg-open", false);
+}
+$("dok").onclick = function () { if (dlgDone) dlgDone("ok"); };
+$("dextra").onclick = function () { if (dlgDone) dlgDone("extra"); };
+$("dcancel").onclick = closeDialog;
+$("dinput").addEventListener("keydown", function (e) { if (e.keyCode === 13 && dlgDone) { e.preventDefault(); dlgDone("ok"); } });
+$("dshade").onclick = function () { closeDialog(); closePicker(); };
+
+function editNick(f) {
+  var had = nickOf(f.id);
+  openDialog({
+    title: had ? "Change the nickname" : "Give a nickname", text: f.name + " (shows on the TV too)",
+    value: had, max: NICK_MAX, ok: "Save", extra: had ? "Remove" : "",
+    onOk: function (v) { if (v !== had) setNick(f, v); return ""; },
+    onExtra: function () { setNick(f, ""); }
+  });
+}
+function newList(addId) {
+  openDialog({
+    title: "New list", text: addId >= 0 && byId[addId] ? byId[addId].name + " goes in it" : "Make a list of your own: a roster, a speedrun, anything",
+    value: "", max: LIST_MAX, list: true, ok: "Make it",
+    onOk: function (v) {
+      if (!v) return "Give the list a name";
+      for (var i = 0; i < meta.lists.length; i++) if (meta.lists[i].name.toLowerCase() === v.toLowerCase()) return "There's a list with that name already";
+      if (meta.lists.length >= 13) return "That's as many lists as there can be (12)";
+      listOp("new", -1, addId, v);
+      return "";
+    }
+  });
+}
+$("lrename").onclick = function () {
+  var v = view, had = viewName(v);
+  openDialog({
+    title: "Rename the list", value: had, max: LIST_MAX, list: true, ok: "Rename",
+    onOk: function (name) {
+      if (!name) return "Give the list a name";
+      for (var i = 0; i < meta.lists.length; i++) if (meta.lists[i].view !== v && meta.lists[i].name.toLowerCase() === name.toLowerCase()) return "There's a list with that name already";
+      if (name !== had) listOp("rename", v, -1, name);
+      return "";
+    }
+  });
+};
+$("ldelete").onclick = function () {
+  var v = view;
+  openDialog({
+    title: "Delete " + viewName(v) + "?", text: "Only the list goes: the figures stay on your Xbox, with their nicknames.",
+    max: 0, ok: "Delete", danger: true,
+    onOk: function () { listOp("delete", v, -1, ""); return ""; }
+  });
+};
+
+// The lists a figure is in: tap one to put it in or take it out.
+var picking = null;
+function openPicker(f) {
+  picking = f;
+  $("ptitle").textContent = f.name + ": lists";
+  renderPicker();
+  setClass(document.body, "dlg-open", true);
+  setClass($("pick"), "shown", true);
+}
+function closePicker() {
+  picking = null;
+  setClass($("pick"), "shown", false);
+  if (!hasClass($("dlg"), "shown")) setClass(document.body, "dlg-open", false);
+}
+function renderPicker() {
+  if (!picking) return;
+  var box = $("plist"), f = picking;
+  box.textContent = "";
+  meta.lists.forEach(function (l) {
+    var b = document.createElement("button");
+    b.type = "button";
+    var inIt = !!l.has[f.id];
+    b.className = "prow" + (inIt ? " in" : "");
+    var mark = document.createElement("span"); mark.className = "box"; mark.textContent = inIt ? "\u2713" : "";
+    var n = document.createElement("span"); n.className = "pn"; n.textContent = (l.view === FAV ? "\u2605 " : "") + l.name;
+    var c = document.createElement("span"); c.className = "pc"; c.textContent = l.order.length;
+    b.appendChild(mark); b.appendChild(n); b.appendChild(c);
+    b.onclick = function () { toggleList(l.view, f.id); };
+    box.appendChild(b);
+  });
+  var add = document.createElement("button");
+  add.type = "button"; add.className = "prow add"; add.textContent = "+ New list with " + f.name;
+  add.onclick = function () { newList(f.id); };
+  box.appendChild(add);
+}
+$("pdone").onclick = closePicker;
+
+// ---------------------------------------------------------------------------------------------
+// Nicknames and lists: changed here at once, then on the Xbox (which writes nicknames.ini and
+// lists.ini and tells every phone).
+// ---------------------------------------------------------------------------------------------
+// What the Xbox last said each list holds (the list on screen is reloaded when that changes).
+var serverKeys = {}, listLoadedKey = "";
+function listKey(v) { return isListView(v) ? (serverKeys[v] || "") : ""; }
+function applyMeta(m) {
+  meta.rev = m.nrev;
+  meta.nicks = {};
+  (m.nicks || []).forEach(function (n) { meta.nicks[n[0]] = n[1]; });
+  serverKeys = {};
+  meta.lists = (m.lists || []).map(function (l) {
+    var has = {};
+    l[2].forEach(function (id) { has[id] = true; });
+    serverKeys[l[0]] = l[2].join(",");
+    return { view: l[0], name: l[1], order: l[2], has: has };
+  });
+  showMeta();
+  if (isListView(view) && state && listKey(view) !== listLoadedKey) loadList();  // changed here or elsewhere
+}
+function showMeta() {
+  Object.keys(cardsById).forEach(function (id) {
+    var cards = cardsById[id], fav = inList(FAV, +id);
+    for (var i = 0; i < cards.length; i++) {
+      cardNick(cards[i]);
+      if (cards[i]._fav !== fav) { cards[i]._fav = fav; cards[i].className = cardClass(cards[i]); }
+    }
+  });
+  if (state) renderRift();
+  renderPicker();
+}
+function loadMeta() {
+  if (metaLoading) return;
+  metaLoading = true;
+  api("/api/meta", false, 3, 8000).then(function (m) {
+    metaLoading = false;
+    applyMeta(m);
+    if (state && state.nrev !== meta.rev) loadMeta();  // changed again meanwhile
+  }, function () { metaLoading = false; });
+}
+function setNick(f, text) {
+  var had = nickOf(f.id);
+  if (text) meta.nicks[f.id] = text; else delete meta.nicks[f.id];
+  showMeta();
+  enqueue(function () {
+    return api("/api/nick?i=" + f.id + "&n=" + encodeURIComponent(text), true, 2, 8000).then(function (r) {
+      toast(r.msg, !r.ok);
+      if (!r.ok) { if (had) meta.nicks[f.id] = had; else delete meta.nicks[f.id]; }
+      else if (r.nick) meta.nicks[f.id] = r.nick;
+      showMeta();
+    }, function () {
+      toast("Couldn't reach the Xbox", true);
+      if (had) meta.nicks[f.id] = had; else delete meta.nicks[f.id];
+      showMeta();
+    });
+  });
+}
+function toggleList(v, id) {
+  var l = listOf(v);
+  if (!l) return;
+  var add = !l.has[id];
+  function apply(on) {
+    if (on && !l.has[id]) { l.has[id] = true; l.order = l.order.concat([id]); }
+    else if (!on && l.has[id]) { delete l.has[id]; l.order = l.order.filter(function (x) { return x !== id; }); }
+    showMeta();
+  }
+  apply(add);
+  listOp(add ? "add" : "remove", v, id, "", function () { apply(!add); });
+}
+function listOp(a, v, id, name, undo) {
+  enqueue(function () {
+    var q = "/api/lists?a=" + a + "&l=" + v + "&i=" + id + "&n=" + encodeURIComponent(name || "");
+    return api(q, true, a === "add" || a === "remove" ? 2 : 1, 8000).then(function (r) {
+      toast(r.msg, !r.ok);
+      if (!r.ok && undo) undo();
+      if (r.ok && a === "new" && id < 0) {  // made from "+ New list": go to it
+        if (viewName(r.view)) { view = r.view; renderTabs(); loadList(); } else wantView = r.view;
+      }
+      if (!live) refresh();
+    }, function () {
+      toast("Couldn't reach the Xbox", true);
+      if (undo) undo();
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Actions: shown on the phone at once, sent to the Xbox in order (none dropped while one is on
+// its way), each tried twice (doing one again is harmless: "already on the rift").
+// ---------------------------------------------------------------------------------------------
+var jobs = [], working = false;
+function enqueue(fn) { jobs.push(fn); if (!working) nextJob(); }
+function nextJob() {
+  var fn = jobs.shift();
+  if (!fn) { working = false; return; }
+  working = true;
+  fn().then(nextJob, nextJob);
+}
+function act(a, id) {
+  var marks = [];
+  function mark(fid, on) { var m = { on: on, done: false }; pending[fid] = m; marks.push([fid, m]); }
+  if (a === "add" || a === "swap") mark(id, true);
+  else if (a === "remove") mark(id, false);
+  else if (a === "clear") Object.keys(chipsById).forEach(function (fid) { mark(+fid, false); });
+  renderRift();
+  var job = { a: a, id: id, marks: marks };
+  enqueue(function () { return send(job); });
+}
+function settle(job, ok) {  // ok: the Xbox did it (its next state will show it); else: undo
+  job.marks.forEach(function (pm) {
+    if (pending[pm[0]] !== pm[1]) return;  // something newer since
+    if (ok && !job.stateMeanwhile) pm[1].done = true;
+    else delete pending[pm[0]];
+  });
+  renderRift();
+}
+function send(job) {
+  var rev = state ? state.rev : -1;
+  return api("/api/do?a=" + job.a + "&i=" + job.id, true, 2, 8000).then(function (r) {
+    // A state that arrived while this was on its way already has it.
+    job.stateMeanwhile = state && state.rev !== rev && r.ok;
+    settle(job, r.ok);
+    toast(r.msg, !r.ok);
+    if (!live) refresh();  // no event stream: ask for the new state now
+  }, function () {
+    toast("Couldn't reach the Xbox", true);
+    settle(job, false);
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Staying connected. The Xbox pushes the rift's state down one long-lived event stream the moment
+// it changes (from the phone or the TV menu) and pings every 5 s; browsers reconnect an event
+// stream by themselves. Without event streams (or when they keep failing) the page asks every
+// two seconds instead. The status says "Reconnecting" when catching up takes more than 2 s (or
+// two pings went missing), and "Not connected" only after 16 s without a word from the Xbox.
+// ---------------------------------------------------------------------------------------------
+var es = null, live = false, heard = 0, esFailures = 0, pollTimer = 0, polling = false, lastOpen = 0;
+var downSince = 0;  // when the stream went down (a reconnect within 2 s isn't worth showing)
+function setLive(on) {
+  if (on) downSince = 0;
+  else if (!downSince) downSince = now();
+  live = on;
+}
+function refresh() {
+  if (polling) return Promise.resolve();
+  polling = true;
+  return api("/api/state", false, 1, 6000).then(applyState, function () {}).then(function () { polling = false; });
+}
+function closeStream() {
+  if (es) { es.onopen = es.onmessage = es.onerror = null; try { es.close(); } catch (e) {} }
+  es = null; setLive(false);
+}
+function startStream() {
+  closeStream();
+  if (!window.EventSource || esFailures >= 6) { startPolling(); return; }
+  lastOpen = now();
+  var src;
+  try { src = new EventSource("/api/events"); } catch (e) { esFailures++; startPolling(); return; }
+  es = src;
+  src.onopen = function () { if (src !== es) return; setLive(true); heard = now(); stopPolling(); };
+  src.onmessage = function (e) {
+    if (src !== es) return;
+    esFailures = 0; setLive(true);
+    try { applyState(JSON.parse(e.data)); } catch (err) {}
+  };
+  src.addEventListener("ping", function () { if (src === es) { heard = now(); esFailures = 0; setLive(true); } });
+  src.onerror = function () {
+    if (src !== es) return;
+    setLive(false);
+    esFailures++;
+    if (src.readyState === 2) setTimeout(function () { if (src === es) startStream(); }, 1000);  // closed for good: open a new one
+  };
+}
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(function () {
+    if (document.hidden) return;
+    refresh();
+    if (window.EventSource && !es && now() - lastOpen > 30000) { esFailures = 0; startStream(); }  // try the stream again now and then
+  }, 2000);
+  refresh();
+}
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; } }
+function catchUp() { refresh(); startStream(); }
+// The watchdog: what the status shows, and a stream that went quiet (pings come every 5 s, so two
+// missed) started again.
+setInterval(function () {
+  if (document.hidden) return;
+  var quiet = now() - heard;
+  if (!state || quiet > 16000) setPill(state ? "off" : "wait", state ? "Not connected" : "Connecting...");
+  else if ((!live && !pollTimer && now() - downSince > 2000) || quiet > 11000) setPill("wait", "Reconnecting...");
+  else setPill("", state.gameName);
+  if (es && quiet > 11000 && now() - lastOpen > 11000) startStream();
+}, 1000);
+document.addEventListener("visibilitychange", function () {
+  // Back from the lock screen or another app: catch up straight away.
+  if (!document.hidden && now() - heard > 7000) catchUp();
+});
+window.addEventListener("pageshow", function (e) { if (e.persisted) catchUp(); });
+window.addEventListener("online", catchUp);
+
+refresh();
+startStream();
+})();
+</script>
+</body>
+</html>

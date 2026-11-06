@@ -20,6 +20,14 @@ struct View {
   bool picks_available;   // the game has "My Picks" (R3 switches lists)
   bool picks_mode;        // showing My Picks
   char next_list[24];     // what R3 shows next ("MY PICKS", "GIANTS", "ALL"), "" = nothing else
+  char remote[32];        // the phone remote's address ("192.168.1.23"), "" while it's off
+  char nickname[24];      // the nickname given to this figure ("" when none)
+  // The nickname keyboard (START on a figure), while it's up:
+  bool kb_open;
+  char kb_text[24];       // what's typed so far
+  int kb_row, kb_col;     // the key picked (keyboard.h)
+  bool kb_caps;
+  bool start_hint;        // START gives the figure a nickname (the drawn menu)
 };
 
 enum Action { kAdd, kSwap, kRemove, kClear };

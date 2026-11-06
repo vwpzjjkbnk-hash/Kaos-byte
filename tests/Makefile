@@ -1,4 +1,4 @@
-# Host-side checks for Project Kaos-Byte2.0v (The Static Rift). The plugin itself is built with the Xbox 360 XDK.
+# Host-side checks for Project Kaos-Byte4.1.0v (The Static Rift). The plugin itself is built with the Xbox 360 XDK.
 CXX ?= g++
 CXXFLAGS ?= -std=c++98 -Wall -Wextra -Werror -pedantic -O1 -g
 CLANGXX ?= clang++
@@ -7,6 +7,14 @@ all: run
 
 test_portal: test_portal.cpp ../src/core/portal_core.cpp ../src/core/portal_core.h ../src/core/sp_lock.h
 	$(CXX) $(CXXFLAGS) -o $@ test_portal.cpp ../src/core/portal_core.cpp -lpthread
+
+# The phone remote's HTTP helpers (request parsing, which files it hands out, JSON).
+test_remote: test_remote.cpp ../src/core/remote_http.cpp ../src/core/remote_http.h
+	$(CXX) $(CXXFLAGS) -o $@ test_remote.cpp ../src/core/remote_http.cpp
+
+# Nicknames and lists (nicknames.ini, lists.ini; what's typed for them).
+test_collections: test_collections.cpp ../src/core/collections.cpp ../src/core/collections.h
+	$(CXX) $(CXXFLAGS) -o $@ test_collections.cpp ../src/core/collections.cpp
 
 # config.cpp built natively against the XDK stubs (with host shims in test_config.cpp).
 test_config: test_config.cpp ../src/xbox/config.cpp ../src/xbox/config.h
@@ -40,15 +48,17 @@ test_xrt: test_xrt.cpp ../xrt/xrt_libc.cpp ../xrt/xrt_printf.cpp
 syntax:
 	@for flavour in "" "-DSKYPORTAL_SIDELOAD" "-DSKYPORTAL_SIDELOAD -DSKYPORTAL_MENU_POP" \
 	    "-DSKYPORTAL_SIDELOAD -DSKYPORTAL_MENU_DRAWN" "-DSKYPORTAL_MENU_DRAWN"; do \
-	  for f in ../src/xbox/*.cpp ../src/core/portal_core.cpp; do \
+	  for f in ../src/xbox/*.cpp ../src/core/portal_core.cpp ../src/core/remote_http.cpp ../src/core/collections.cpp; do \
 	    echo "  syntax $$f $$flavour"; \
 	    $(CLANGXX) --target=powerpc-unknown-none -std=c++98 -nostdlibinc -fsyntax-only -Wall -Wextra \
 	      -Wno-unused-parameter -D_XBOX -D__cdecl= $$flavour -Ixdk_stubs/libc -Ixdk_stubs -I../src/xbox $$f || exit 1; \
 	  done; \
 	done
 
-run: test_portal test_config test_figures test_patch test_xrt syntax
+run: test_portal test_remote test_collections test_config test_figures test_patch test_xrt syntax
 	./test_portal
+	./test_remote
+	./test_collections
 	./test_config
 	./test_figures
 	./test_patch
@@ -59,13 +69,29 @@ run: test_portal test_config test_figures test_patch test_xrt syntax
 emu:
 	$(MAKE) -C ../xrt all-variants
 	PYTHONPATH=$(UNICORN_PY) LIBUNICORN_PATH=$(UNICORN_LIB) python3 emu/run_dll.py \
-	  ../xrt/build/classic/Kaos-Byte2.0v-classic.xex ../xrt/build/classic/Kaos-Byte2.0v-classic.elf classic
+	  ../xrt/build/classic/KaosByte-classic.xex ../xrt/build/classic/KaosByte-classic.elf classic
 	PYTHONPATH=$(UNICORN_PY) LIBUNICORN_PATH=$(UNICORN_LIB) python3 emu/run_dll.py \
-	  ../xrt/build/pop/Kaos-Byte2.0v-pop.xex ../xrt/build/pop/Kaos-Byte2.0v-pop.elf pop
+	  ../xrt/build/pop/KaosByte-pop.xex ../xrt/build/pop/KaosByte-pop.elf pop
 	PYTHONPATH=$(UNICORN_PY) LIBUNICORN_PATH=$(UNICORN_LIB) python3 emu/run_dll.py \
-	  ../xrt/build/drawn/Kaos-Byte2.0v.xex ../xrt/build/drawn/Kaos-Byte2.0v.elf drawn
+	  ../xrt/build/drawn/KaosByte.xex ../xrt/build/drawn/KaosByte.elf drawn
 	PYTHONPATH=$(UNICORN_PY) LIBUNICORN_PATH=$(UNICORN_LIB) python3 emu/run_dll.py \
-	  ../xrt/build/rgh/Kaos-Byte2.0v-RGH.xex ../xrt/build/rgh/Kaos-Byte2.0v-RGH.elf rgh
+	  ../xrt/build/rgh/KaosByteDSL.xex ../xrt/build/rgh/KaosByteDSL.elf rgh
+
+# The phone remote end to end: the Peer Pressure build on the emulated CPU with XAM's sockets on
+# real ones, and a phone-sized headless Chromium (node + playwright) using its page.
+# FOLDER = a full The Static Rift folder (figures, UI, pictures).
+FOLDER ?= ../build/package/The Static Rift
+emu-remote:
+	$(MAKE) -C ../xrt VARIANT=drawn
+	PYTHONPATH=$(UNICORN_PY) LIBUNICORN_PATH=$(UNICORN_LIB) python3 emu/run_remote.py \
+	  ../xrt/build/drawn/KaosByte.xex ../xrt/build/drawn/KaosByte.elf "$(FOLDER)"
+
+# The same on the Dashlaunch build (RGH / JTAG / BadUpdate): booted on the dashboard, the server
+# starting with the game, then the game exiting and starting again.
+emu-remote-rgh:
+	$(MAKE) -C ../xrt VARIANT=rgh
+	PYTHONPATH=$(UNICORN_PY) LIBUNICORN_PATH=$(UNICORN_LIB) python3 emu/run_remote.py \
+	  ../xrt/build/rgh/KaosByteDSL.xex ../xrt/build/rgh/KaosByteDSL.elf "$(FOLDER)"
 
 # The skydrawn menu rendered on the PC (same code as the console) into PPM previews.
 # ASSETS = the SkyPortal folder tools/mkassets.py wrote (UI\ and Images\).
@@ -76,6 +102,6 @@ preview: overlay_preview.cpp ../src/xbox/overlay_render.cpp ../src/xbox/elements
 	./overlay_preview $(ASSETS) preview
 
 clean:
-	rm -f test_figures test_portal test_config test_patch test_xrt overlay_preview preview_*.ppm *.host.o test_config.tmp.ini
+	rm -f test_figures test_portal test_remote test_collections test_config test_patch test_xrt overlay_preview preview_*.ppm *.host.o test_config.tmp.ini
 
-.PHONY: all run syntax emu clean
+.PHONY: all run syntax emu emu-remote emu-remote-rgh clean

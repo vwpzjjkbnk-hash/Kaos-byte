@@ -1,4 +1,4 @@
-// Project Kaos-Byte2.0v (The Static Rift) - common includes for the Xbox 360 plugin.
+// Project Kaos-Byte4.1.0v (The Static Rift) - common includes for the Xbox 360 plugin.
 // Requires the Xbox 360 XDK (xtl.h) and xkelib (kernel/XAM export declarations).
 #pragma once
 
@@ -11,9 +11,15 @@
 
 #include "../core/portal_core.h"
 
+// The phone remote (a web page the Xbox serves while a game runs): the Peer Pressure builds, and
+// the Dashlaunch build with the full-screen menu (RGH / JTAG / BadUpdate).
+#if defined(SKYPORTAL_SIDELOAD) || defined(SKYPORTAL_MENU_DRAWN)
+#define SKYPORTAL_REMOTE 1
+#endif
+
 // Plugin-wide constants.
 #define SKYPORTAL_VERSION_STRING "2.0"
-#define SKYPORTAL_PRODUCT "Project Kaos-Byte2.0v (build 9)"
+#define SKYPORTAL_PRODUCT "Project Kaos-Byte4.1.0v"
 #define SKYPORTAL_VERSION_WSTRING L"1.0.0"
 
 // XAM ordinals hooked in the game (checked against xkelib's xamext .def files and Xenia Canary).

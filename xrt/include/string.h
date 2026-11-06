@@ -21,6 +21,7 @@ char* strtok_s(char* s, const char* delims, char** context);
 int _stricmp(const char* a, const char* b);
 int _strnicmp(const char* a, const char* b, size_t n);
 int strncmp(const char* a, const char* b, size_t n);
+char* strstr(const char* haystack, const char* needle);
 #ifdef __cplusplus
 }
 #endif

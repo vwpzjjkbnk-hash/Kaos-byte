@@ -201,6 +201,7 @@ static void TestFixture() {
       {"4. Trap Team/7) Traps/Air/Air Toucan.dump", "Air Toucan", 4, 1, "Trap", 4, 212, '-'},
       {"4. Trap Team/7) Traps/Air/Pain-Yatta.dump", "Pain-Yatta", 4, 5, "Villain", 4, 215, '-'},
       {"5. SuperChargers/2) Vehicles/Hot Streak.dump", "Hot Streak", 5, 3, "Land Vehicle", 5, 3224, '-'},
+      {"5. SuperChargers/1) SuperChargers/Spitfire.dump", "Spitfire", 5, 3, "SuperCharger", 5, 3412, 'R'},
       {"6. Imaginators/1) Senseis/Pain-Yatta.dump", "Pain-Yatta", 6, 5, "Villain Sensei", 6, 615, 'R'},
       {"6. Imaginators/3) Creation Crystals/Fire/Fire Angel.dump", "Fire Angel", 6, 3, "Creation Crystal", 6, 682, '-'},
       {"6. Imaginators/8) Unreleased/Instant Wildfire.dump", "Instant Wildfire", 6, 3, "Unreleased", 6, 458, '-'},
@@ -261,23 +262,27 @@ static void TestFixture() {
   std::string got = Join(Names(lib));
   printf("  Imaginators, by type: %s\n", got.c_str());
   CHECK(got ==
-        "Blast Zone Bottom, Blast Zone Top, Instant Wildfire, Wildfire, "               // gimmick: Fire
+        "Blast Zone Bottom, Blast Zone Top, Instant Wildfire, Spitfire, Wildfire, "     // gimmick: Fire
         "Pain-Yatta, "                                                                  //   Magic
         "Dark Super Shot Stealth Elf, Super Shot Stealth Elf, Tree Rex, "               //   Life
-        "Fire Angel, "                                                                  // crystals
         "Eon's Elite Spyro, My Spyro, Spyro, Drobot, Drobot, Dark Stealth Elf, Stealth Elf, "  // Skylanders
-        "Hot Streak, "                                                                  // vehicles
+        "Fire Angel, "                                                                  // crystals
         "Air Toucan, Pain-Yatta, "                                                      // traps: Air, Magic
-        "Dragon's Peak, "                                                               // adventure packs
-        "Anvil Rain");                                                                  // magic items
+        "Hot Streak, "                                                                  // vehicles
+        "Anvil Rain, "                                                                  // magic items
+        "Dragon's Peak");                                                               // adventure packs
   // Sections: up/down jumps category + element.
-  CHECK(lib.GroupJump(0, +1) == 4);   // Gimmick/Fire -> Gimmick/Magic (Pain-Yatta the Sensei)
-  CHECK(lib.GroupJump(4, +1) == 5);   // -> Gimmick/Life
-  CHECK(lib.GroupJump(5, +1) == 8);   // -> Creation Crystals
-  CHECK(lib.GroupJump(9, -1) == 8);   // back to the start of the previous section
+  CHECK(lib.GroupJump(0, +1) == 5);   // Gimmick/Fire -> Gimmick/Magic (Pain-Yatta the Sensei)
+  CHECK(lib.GroupJump(5, +1) == 6);   // -> Gimmick/Life
+  CHECK(lib.GroupJump(6, +1) == 9);   // -> Skylanders/Magic
+  CHECK(lib.GroupJump(10, -1) == 9);  // back to the start of the section
+  CHECK(lib.GroupJump(9, -1) == 6);   // ... and from there to the previous one
   char label[96];
-  CHECK(lib.SectionLabel(lib.BrowseAt(0), label, sizeof(label)) && !strcmp(label, "Gimmick Skylanders / Fire"));
-  CHECK(lib.SectionLabel(lib.BrowseAt(20), label, sizeof(label)) && !strcmp(label, "Magic Items"));
+  CHECK(lib.SectionLabel(0, label, sizeof(label)) && !strcmp(label, "Gimmick Skylanders / Fire"));
+  CHECK(lib.SectionLabel(16, label, sizeof(label)) && !strcmp(label, "Creation Crystals / Fire"));
+  CHECK(lib.SectionLabel(20, label, sizeof(label)) && !strcmp(label, "Magic Items"));
+  CHECK(lib.SectionLabel(21, label, sizeof(label)) && !strcmp(label, "Adventure Packs"));
+  CHECK(lib.RosterAt(0) == 0);
   // The older Drobot first.
   CHECK(lib.Game(lib.BrowseAt(12)) == 1 && lib.Game(lib.BrowseAt(13)) == 2);
 
@@ -288,10 +293,10 @@ static void TestFixture() {
   printf("  Spyro's Adventure: %s\n", got.c_str());
   // (Series 2 Drobot works in Spyro's Adventure too; NewestOnly would list only it.)
   CHECK(got == "Eon's Elite Spyro, My Spyro, Spyro, Drobot, Drobot, Dark Stealth Elf, Stealth Elf, "
-               "Dragon's Peak, Anvil Rain");
+               "Anvil Rain, Dragon's Peak");
 
   // My Picks in Giants: Drobot -> its newest release (Series 2), Tree Rex; Blast Zone can't be
-  // used in Giants. Non-Skylanders all stay.
+  // used in Giants. Then the rest (items, adventure packs).
   const char* picks[] = {"Drobot", "tree rex", "Blast Zone"};
   lib.SetPicks(picks, 3);
   lib.SetGameFilter(2);
@@ -299,7 +304,7 @@ static void TestFixture() {
   lib.Scan();
   got = Join(Names(lib));
   printf("  Giants, My Picks: %s\n", got.c_str());
-  CHECK(got == "Tree Rex, Drobot, Dragon's Peak, Anvil Rain");
+  CHECK(got == "Tree Rex, Drobot, Anvil Rain, Dragon's Peak");
   CHECK(lib.Game(lib.BrowseAt(1)) == 2);
   CHECK(lib.PicksFound() == 2);
 
@@ -310,7 +315,7 @@ static void TestFixture() {
   lib.Scan();
   got = Join(Names(lib));
   printf("  Giants, picks with a game and a misspelling: %s\n", got.c_str());
-  CHECK(got == "Tree Rex, Drobot, Dragon's Peak, Anvil Rain");
+  CHECK(got == "Tree Rex, Drobot, Anvil Rain, Dragon's Peak");
   CHECK(lib.Game(lib.BrowseAt(1)) == 1);
   CHECK(lib.PicksFound() == 2 && lib.PickFound(0) && lib.PickFound(1) && !lib.PickFound(2));
   CHECK(!strcmp(lib.PickText(2), "Nobody At All"));
@@ -318,7 +323,7 @@ static void TestFixture() {
   lib.SetPicks(picks_s, 1);
   lib.SetPicksMode(true);
   lib.Scan();
-  CHECK(Join(Names(lib)) == "Drobot, Dragon's Peak, Anvil Rain" && lib.Game(lib.BrowseAt(0)) == 1);
+  CHECK(Join(Names(lib)) == "Drobot, Anvil Rain, Dragon's Peak" && lib.Game(lib.BrowseAt(0)) == 1);
   const char* picks_s2[] = {"Drobot (Series 2)"};
   lib.SetPicks(picks_s2, 1);
   lib.SetPicksMode(true);
@@ -333,11 +338,9 @@ static void TestFixture() {
   lib.Resort();
   got = Join(Names(lib));
   printf("  Swap Force, My Picks: %s\n", got.c_str());
-  CHECK(got == "Blast Zone Bottom, Blast Zone Top, Tree Rex, Drobot, Dragon's Peak, Anvil Rain");
+  CHECK(got == "Blast Zone Bottom, Blast Zone Top, Tree Rex, Drobot, Anvil Rain, Dragon's Peak");
 
-  // Imaginators: "Pain-Yatta" is the Villain Sensei, not the Trap Team villain trap (which stays
-  // with the traps). Unreleased figures are always in, each with its regular figure: Instant
-  // Wildfire brings Wildfire.
+  // Imaginators: "Pain-Yatta" is the Villain Sensei, not the Trap Team villain trap.
   const char* picks6[] = {"Pain-Yatta"};
   lib.SetPicks(picks6, 1);
   lib.SetGameFilter(6);
@@ -345,21 +348,80 @@ static void TestFixture() {
   lib.Scan();
   got = Join(Names(lib));
   printf("  Imaginators, My Picks: %s\n", got.c_str());
-  CHECK(got == "Instant Wildfire, Wildfire, Pain-Yatta, Fire Angel, Hot Streak, Air Toucan, "
-               "Pain-Yatta, Dragon's Peak, Anvil Rain");
+  CHECK(got == "Pain-Yatta, Fire Angel, Air Toucan, Pain-Yatta, Hot Streak, Anvil Rain, Dragon's Peak");
   CHECK(lib.GetCategory(lib.BrowseAt(0)) == FigureLibrary::kCatGimmick);
-  CHECK(lib.IsUnreleased(lib.BrowseAt(0)) && !lib.IsUnreleased(lib.BrowseAt(1)));
-  CHECK(lib.PicksFound() == 1);  // the unreleased figures aren't counted as picks
+  CHECK(lib.PicksFound() == 1);
+
+  // Rosters (picks.ini sections): the running game's first, then back to Spyro's Adventure, each
+  // in the usual order; a figure picked in two rosters is in both; a SuperCharger brings its
+  // vehicle. Then everything that isn't a Skylander.
+  const char* picks_r[] = {"Pain-Yatta", "Drobot (series 1)", "Spitfire", "Tree Rex", "Drobot",
+                           "Spyro", "Stealth Elf", "Spyro"};
+  const signed char rosters[] = {6, 6, 5, 2, 2, 2, 1, 1};
+  lib.SetPicks(picks_r, 8, rosters);
+  lib.SetPicksMode(true);
+  lib.Resort();
+  got = Join(Names(lib));
+  printf("  Imaginators, My Picks by roster: %s\n", got.c_str());
+  CHECK(got == "Pain-Yatta, Drobot, "         // Imaginators' roster
+               "Spitfire, Hot Streak, "       // SuperChargers'
+               "Tree Rex, Spyro, Drobot, "    // Giants'
+               "Spyro, Stealth Elf, "         // Spyro's Adventure's
+               "Fire Angel, Air Toucan, Pain-Yatta, Hot Streak, Anvil Rain, Dragon's Peak");  // the rest
+  CHECK(lib.PicksFound() == 8);
+  CHECK(lib.RosterAt(0) == 6 && lib.RosterAt(1) == 6 && lib.RosterAt(2) == 5 && lib.RosterAt(3) == 5);
+  CHECK(lib.RosterAt(4) == 2 && lib.RosterAt(7) == 1 && lib.RosterAt(8) == 1 && lib.RosterAt(9) == 0);
+  CHECK(lib.Game(lib.BrowseAt(1)) == 1 && lib.Game(lib.BrowseAt(6)) == 2);  // Series 1, Series 2
+  CHECK(lib.BrowseAt(5) == lib.BrowseAt(7));                                // Spyro in both
+  CHECK(lib.GroupJump(0, +1) == 1);   // Gimmick/Magic -> Skylanders/Tech
+  CHECK(lib.GroupJump(1, +1) == 2);   // -> the next roster
+  CHECK(lib.GroupJump(3, +1) == 4);   // Hot Streak (vehicle) -> Giants' roster
+  CHECK(lib.GroupJump(5, +1) == 6);   // Spyro (Magic) -> Drobot (Tech)
+  CHECK(lib.GroupJump(6, +1) == 7);   // Giants' roster -> Spyro's Adventure's (Spyro again)
+  CHECK(lib.GroupJump(7, -1) == 6);
+  CHECK(lib.GroupJump(8, +1) == 9);   // Spyro's Adventure's roster -> Creation Crystals
+  CHECK(lib.SectionLabel(9, label, sizeof(label)) && !strcmp(label, "Creation Crystals / Fire"));
+  CHECK(lib.SectionLabel(3, label, sizeof(label)) && !strcmp(label, "Vehicles / Fire"));
+  // Rescanning keeps the rosters.
+  lib.Scan();
+  CHECK(Join(Names(lib)) == got);
+  lib.SetPicks(picks6, 1);
 
   // One game's own figures (R3 after My Picks): every release from that game's folder.
   lib.SetPicksMode(false);
-  CHECK(lib.CountFromGame(4) == 4 && lib.CountFromGame(2) == 2 && lib.CountFromGame(5) == 3);
+  CHECK(lib.CountFromGame(4) == 4 && lib.CountFromGame(2) == 2 && lib.CountFromGame(5) == 4);
   lib.SetViewGame(4);
   lib.Resort();
   got = Join(Names(lib));
   printf("  Imaginators, Trap Team's figures: %s\n", got.c_str());
   CHECK(got == "Wildfire, Eon's Elite Spyro, Air Toucan, Pain-Yatta");
   lib.SetViewGame(0);
+
+  // A list of your own (Favorites, a list made on the phone): its figures in its order, each
+  // once, only those the game filter lets through; unknown ids are skipped.
+  {
+    const int wildfire = lib.FindByName("Wildfire"), toucan = lib.FindByName("Air Toucan");
+    const int spyro = lib.FindByName("Spyro");
+    CHECK(wildfire >= 0 && toucan >= 0 && spyro >= 0);
+    short ids[6] = {(short)toucan, 9999, (short)wildfire, (short)toucan, -1, (short)spyro};
+    lib.SetListView(ids, 6, 3);
+    lib.Resort();
+    CHECK(lib.ListTag() == 3);
+    got = Join(Names(lib));
+    printf("  Imaginators, a list: %s\n", got.c_str());
+    CHECK(lib.BrowseCount() == 3 && lib.BrowseAt(0) == toucan && lib.BrowseAt(1) == wildfire &&
+          lib.BrowseAt(2) == spyro);
+    lib.SetGameFilter(2);  // Giants: Trap Team's figures can't be used
+    lib.Scan();
+    CHECK(lib.BrowseCount() == 1 && lib.BrowseAt(0) == spyro);
+    lib.SetGameFilter(6);
+    lib.SetListView(ids, 0, 4);  // an empty list
+    lib.Resort();
+    CHECK(lib.BrowseCount() == 0 && lib.ListTag() == 4);
+    lib.SetListView(NULL, -1, 0);
+    lib.Scan();
+    CHECK(lib.ListTag() == -1 && lib.BrowseCount() > 3);
+  }
 
   // Back to everything, then the old folder order.
   lib.SetPicksMode(false);
@@ -369,7 +431,7 @@ static void TestFixture() {
   got = Join(Names(lib));
   printf("  Imaginators, by folder: %s\n", got.c_str());
   CHECK(Names(lib)[0] == "My Spyro" && Names(lib)[1] == "Spyro");  // loose first, then SSA's figures
-  CHECK(!lib.SectionLabel(lib.BrowseAt(0), label, sizeof(label)));
+  CHECK(!lib.SectionLabel(0, label, sizeof(label)));
   system("rm -rf figures_fixture");
 }
 
@@ -431,59 +493,76 @@ static void Report(const char* root, const char* picks_ini) {
     printf("no UI/figures.idx in %s\n", root);
     return;
   }
+  static const char* const kTypeOrder[] = {"gimmick", "Skylanders", "crystals", "traps",
+                                             "vehicles", "magic items", "adventure packs"};
   for (int g = 1; g <= 6; ++g) {
     lib.SetGameFilter(g);
-    lib.SetNewestOnly(true);
+    lib.SetNewestOnly(false);  // the shipped default
     lib.SetPicksMode(false);
+    lib.SetViewGame(0);
     const int n = lib.Scan();
+    printf("\n== %s: ALL lists %d (%d for later games)\n", kGames[g], n, lib.HiddenCount());
+    // ALL: the types in the menu's order, each once, in one run.
+    std::string runs;
+    int last = -1;
+    for (int p = 0; p < n; ++p) {
+      const int c = lib.GetCategory(lib.BrowseAt(p));
+      if (c != last) runs += std::string(runs.empty() ? "" : ", ") + FigureLibrary::CategoryName(c);
+      if (last >= 0 && FigureLibrary::TypeRank(c) < FigureLibrary::TypeRank(last)) runs += " (OUT OF ORDER)";
+      last = c;
+    }
+    printf("   ALL order: %s\n", runs.c_str());
     int per[FigureLibrary::kCatCount] = {0};
     for (int p = 0; p < n; ++p) ++per[lib.GetCategory(lib.BrowseAt(p))];
-    printf("\n== %s: %d listed (%d older releases hidden, %d for later games)\n", kGames[g], n,
-           lib.OlderCount(), lib.HiddenCount());
-    for (int c = 0; c < FigureLibrary::kCatCount; ++c) {
-      printf("   %-20s %d\n", FigureLibrary::CategoryName(c), per[c]);
+    printf("   ALL by type:");
+    for (int c = 0; c < FigureLibrary::kCatCount; ++c) printf(" %s %d;", FigureLibrary::CategoryName(c), per[c]);
+    printf("\n");
+    (void)kTypeOrder;
+    // Each game's own list.
+    for (int v = 1; v <= g; ++v) {
+      lib.SetViewGame(v);
+      lib.Resort();
+      printf("   %s figures: %d\n", kGames[v], lib.BrowseCount());
     }
-    // Picks
+    lib.SetViewGame(0);
+    // My Picks: this game's roster and the earlier games', as the plugin loads them.
     std::vector<std::string> names;
-    if (picks_ini) {
-      names = IniPicks(picks_ini, kGames[g]);
-    } else {
-      std::string all = kPicks[g];
-      size_t start = 0;
-      while (start < all.size()) {
-        size_t comma = all.find(',', start);
-        if (comma == std::string::npos) comma = all.size();
-        names.push_back(all.substr(start, comma - start));
-        start = comma + 1;
+    std::vector<signed char> rosters;
+    for (int r = g; r >= 1; --r) {
+      std::vector<std::string> part;
+      if (picks_ini) {
+        part = IniPicks(picks_ini, kGames[r]);
+      } else {
+        std::string all = kPicks[r];
+        size_t start = 0;
+        while (start < all.size()) {
+          size_t comma = all.find(',', start);
+          if (comma == std::string::npos) comma = all.size();
+          part.push_back(all.substr(start, comma - start));
+          start = comma + 1;
+        }
+      }
+      for (size_t i = 0; i < part.size(); ++i) {
+        names.push_back(part[i]);
+        rosters.push_back((signed char)r);
       }
     }
     std::vector<const char*> ptrs;
     for (size_t i = 0; i < names.size(); ++i) ptrs.push_back(names[i].c_str());
-    lib.SetPicks(&ptrs[0], (int)ptrs.size());
+    lib.SetPicks(&ptrs[0], (int)ptrs.size(), &rosters[0]);
     lib.SetPicksMode(true);
     const int m = lib.Scan();
-    printf("   My Picks: %d of %d found, %d listed in all; picked Skylanders:\n", lib.PicksFound(),
-           (int)names.size(), m);
+    printf("   My Picks: %d of %d found, %d listed:\n", lib.PicksFound(), (int)names.size(), m);
     for (int p = 0; p < lib.PickCount(); ++p) {
       if (!lib.PickFound(p)) printf("     NOT FOUND: %s\n", lib.PickText(p));
     }
-    std::string vehicles;
-    int nveh = 0;
     for (int p = 0; p < m; ++p) {
       const int id = lib.BrowseAt(p);
-      if (lib.GetCategory(id) != FigureLibrary::kCatVehicle) continue;
-      ++nveh;
-      vehicles += std::string(vehicles.empty() ? "" : ", ") + lib.Name(id);
-    }
-    if (nveh) printf("   Vehicles in My Picks (%d): %s\n", nveh, vehicles.c_str());
-    for (int p = 0; p < m; ++p) {
-      const int id = lib.BrowseAt(p);
-      const int c = lib.GetCategory(id);
-      if (c != FigureLibrary::kCatGimmick && c != FigureLibrary::kCatSkylander) continue;
-      char label[96], series[40];
-      lib.SectionLabel(id, label, sizeof(label));
+      char label[96], series[40], heading[140];
+      lib.SectionLabel(p, label, sizeof(label));
       lib.Series(id, series, sizeof(series));
-      printf("     %-34s %-22s %s (game %d)\n", label, lib.Name(id), series, lib.Game(id));
+      snprintf(heading, sizeof(heading), "%s Roster / %s", kGames[lib.RosterAt(p)], label);
+      printf("     %-52s %-26s %s (game %d)\n", heading, lib.Name(id), series, lib.Game(id));
     }
   }
 }

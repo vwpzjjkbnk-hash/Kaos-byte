@@ -23,6 +23,14 @@ bool StartThread(LPTHREAD_START_ROUTINE fn, DWORD stack_bytes);
 // Starts fn(NULL) as a thread of the game. Call it from one of the game's own threads (a hook):
 // the new thread belongs to the game, sees what the game's threads see, and ends with the game.
 bool StartGameThread(LPTHREAD_START_ROUTINE fn, DWORD stack_bytes);
+#if !defined(SKYPORTAL_SIDELOAD)
+// Dashlaunch build: `fn` is started as a thread of the running game the next time one of the
+// game's own threads passes through a hook (the hooks call ServeGameThread). One at a time;
+// CancelGameThread forgets a request the game ended before serving.
+void RequestGameThread(LPTHREAD_START_ROUTINE fn, DWORD stack_bytes);
+void ServeGameThread();
+void CancelGameThread();
+#endif
 
 // ---- Drives ----
 // Creates a drive letter, e.g. MountDrive("SKYHDD:", "\\Device\\Harddisk0\\Partition1", true).

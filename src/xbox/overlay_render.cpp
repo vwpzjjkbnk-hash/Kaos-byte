@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "elements.h"
+#include "keyboard.h"
 #include "overlay_font.h"
 
 namespace overlay {
@@ -22,6 +23,8 @@ const u32 kHeader = 0xBFE3FF;
 const u32 kOnPortal = 0x5CFF8E;
 const u32 kOffPortal = 0xD2DCEE;
 const u32 kBtnA = 0x5BD15B, kBtnB = 0xFF4D4D, kBtnX = 0x3FA0FF, kBtnY = 0xFFD23F;
+const u32 kNick = 0xFFD86B;      // a figure's nickname
+const u32 kKey = 0x16244A, kKeyPicked = 0x3D8BFF;
 
 Strip* F = 0;      // the strip being drawn
 int S = 256;       // layout scale, 256 = a 720-line frame
@@ -110,6 +113,14 @@ void Background(const Image& bg) {
       if (band) c = Mix(c, 0x020612, band);
       row[x] = c;
     }
+  }
+}
+
+// Darkens the whole frame (behind a panel).
+void Dim(int alpha) {
+  for (int y = Y0; y < Y1; ++y) {
+    u32* row = &F->px[(y - Y0) * F->w];
+    for (int x = 0; x < F->w; ++x) row[x] = Mix(row[x], 0x020612, alpha);
   }
 }
 
@@ -420,6 +431,83 @@ void Number(char* out, int v) {
   out[i] = 0;
 }
 
+// The nickname keyboard (START on a figure): a panel over the dimmed menu.
+void KeyboardPanel(const menu::View& v, const OverlayFont& large, const OverlayFont& medium,
+                   const OverlayFont& small) {
+  const int W = F->w, H = F->h, cx = W / 2;
+  Dim(165);
+  const int pw = Sc(900), ph = Sc(566);
+  const int px = cx - pw / 2, py = (H - ph) / 2;
+  FillRoundRect(px, py, pw, ph, Sc(24), 0x0B1838, 245);
+  StrokeRoundRect(px, py, pw, ph, Sc(24), Sc(2) > 0 ? Sc(2) : 1, kCardEdge, 150);
+  // Whose nickname.
+  Text(small, px + Sc(32), py + Sc(24), "NICKNAME FOR", kDim, Sc(2), 255);
+  char name[96];
+  Upper(name, sizeof(name), v.name ? v.name : "");
+  Fit(medium, name, pw - Sc(64) - TextWidth(small, "NICKNAME FOR", Sc(2)) - Sc(16), 0);
+  ShadowText(medium, px + Sc(32) + TextWidth(small, "NICKNAME FOR", Sc(2)) + Sc(16),
+             py + Sc(24) + small.ascent - medium.ascent, name, kWhite, 0);
+  // What's typed, with a cursor, and how many characters are left.
+  const int fx = px + Sc(32), fy = py + Sc(72), fw = pw - Sc(64), fh = Sc(76);
+  FillRoundRect(fx, fy, fw, fh, Sc(14), 0x050B1E, 255);
+  StrokeRoundRect(fx, fy, fw, fh, Sc(14), Sc(2) > 0 ? Sc(2) : 1, kNick, 140);
+  const int ty = fy + (fh - large.line_height) / 2;
+  int tw = 0;
+  if (v.kb_text[0]) {
+    ShadowText(large, fx + Sc(22), ty, v.kb_text, kNick, 0);
+    tw = TextWidth(large, v.kb_text, 0);
+  } else {
+    Text(medium, fx + Sc(22) + Sc(12), fy + (fh - medium.line_height) / 2, "Type a nickname", kDim, 0, 160);
+  }
+  const int bar = Sc(3) > 1 ? Sc(3) : 2;
+  FillRoundRect(fx + Sc(22) + tw + Sc(4), ty + Sc(6), bar, large.ascent + Sc(4), 1, kWhite, 230);
+  char count[12];
+  Number(count, (int)strlen(v.kb_text));
+  strcat(count, "/20");
+  Text(small, fx + fw - Sc(20) - TextWidth(small, count, 0), fy + fh - small.line_height - Sc(8), count, kDim, 0, 255);
+  // The keys.
+  const int kw = Sc(76), kh = Sc(52), gap = Sc(8);
+  const int gw = kbd::kCols * kw + (kbd::kCols - 1) * gap;
+  const int gx = cx - gw / 2, gy = fy + fh + Sc(26);
+  int picked_first, picked_last;
+  kbd::KeySpan(v.kb_row, v.kb_col, &picked_first, &picked_last);
+  for (int r = 0; r < kbd::kRows; ++r) {
+    for (int c = 0; c < kbd::kCols;) {
+      int first, last;
+      kbd::KeySpan(r, c, &first, &last);
+      const int x = gx + first * (kw + gap), y = gy + r * (kh + gap);
+      const int w = (last - first + 1) * kw + (last - first) * gap;
+      const bool picked = r == v.kb_row && first == picked_first;
+      FillRoundRect(x, y, w, kh, Sc(10), picked ? kKeyPicked : kKey, 255);
+      if (picked) StrokeRoundRect(x, y, w, kh, Sc(10), Sc(3) > 1 ? Sc(3) : 2, kWhite, 255);
+      const kbd::Key key = kbd::KeyAt(r, c);
+      if (key == kbd::kChar) {
+        char label[2] = {kbd::CharAt(r, c, v.kb_caps), 0};
+        Text(medium, x + (w - TextWidth(medium, label, 0)) / 2, y + (kh - medium.line_height) / 2 + Sc(2),
+             label, kWhite, 0, 255);
+      } else {
+        const char* label = kbd::SpecialLabel(key);
+        const u32 lc = key == kbd::kCaps && v.kb_caps ? kNick : (key == kbd::kDone ? kOnPortal : kWhite);
+        Text(small, x + (w - TextWidth(small, label, Sc(2))) / 2, y + (kh - small.line_height) / 2 + Sc(2),
+             label, lc, Sc(2), 255);
+      }
+      c = last + 1;
+    }
+  }
+  // What the buttons do.
+  const int hy = py + ph - Sc(46);
+  int hw = HintWidth(small, "A", true, "TYPE") + HintWidth(small, "B", true, "DELETE") +
+           HintWidth(small, "X", true, "SPACE") + HintWidth(small, "Y", true, "CAPS") +
+           HintWidth(small, "START", false, "SAVE") + HintWidth(small, "BACK", false, "CANCEL") - Sc(24);
+  int hx = cx - hw / 2;
+  ButtonHint(small, &hx, hy, "A", kBtnA, "TYPE");
+  ButtonHint(small, &hx, hy, "B", kBtnB, "DELETE");
+  ButtonHint(small, &hx, hy, "X", kBtnX, "SPACE");
+  ButtonHint(small, &hx, hy, "Y", kBtnY, "CAPS");
+  ButtonHint(small, &hx, hy, "START", 0, "SAVE");
+  ButtonHint(small, &hx, hy, "BACK", 0, "CANCEL");
+}
+
 }  // namespace
 
 void RenderStrip(const Scene& s, Strip* strip) {
@@ -441,6 +529,11 @@ void RenderStrip(const Scene& s, Strip* strip) {
   // Header: brand, folder, position.
   static const char kBrand[] = "THE STATIC RIFT";
   ShadowText(small, Sc(40), Sc(22), kBrand, kHeader, Sc(4));
+  if (v.remote[0]) {  // where the phone remote is (under the brand)
+    char phone[48] = "PHONE  ";
+    strncat(phone, v.remote, sizeof(phone) - strlen(phone) - 1);
+    ShadowText(small, Sc(40), Sc(22) + small.line_height, phone, kDim, Sc(1));
+  }
   char count[32] = "";
   if (v.count > 0) {
     char a[12], b[12];
@@ -469,13 +562,8 @@ void RenderStrip(const Scene& s, Strip* strip) {
     return;
   }
 
-  // Name.
   char name[96];
   Upper(name, sizeof(name), v.name);
-  const OverlayFont* nf = &huge;
-  if (TextWidth(*nf, name, 0) > W - Sc(120)) nf = &large;
-  Fit(*nf, name, W - Sc(120), 0);
-  CenteredShadowText(*nf, cx, Sc(58) + (huge.line_height - nf->line_height) / 2, name, kWhite, 0);
 
   // Figure picture: the card art, framed in its element's colour, the frame sized to the picture
   // (portrait cards and landscape Swap Force halves alike).
@@ -513,6 +601,24 @@ void RenderStrip(const Scene& s, Strip* strip) {
   StrokeRoundRect(fx, fy, fw, fh, rad, Sc(2) > 0 ? Sc(2) : 1, Mix(ec, 0xFFFFFF, 90), 170);
   Arrow(cx - Sc(330), ccy, false);
   Arrow(cx + Sc(330), ccy, true);
+
+  // Name (over the picture's glow), and the nickname you gave it under it.
+  if (v.nickname[0]) {
+    const OverlayFont* nf = &large;
+    if (TextWidth(*nf, name, 0) > W - Sc(120)) nf = &medium;
+    Fit(*nf, name, W - Sc(120), 0);
+    CenteredShadowText(*nf, cx, Sc(48) + (large.line_height - nf->line_height) / 2, name, kWhite, 0);
+    char nick[40] = "\"";
+    strncat(nick, v.nickname, sizeof(nick) - 3);
+    strcat(nick, "\"");
+    Fit(medium, nick, W - Sc(200), 0);
+    CenteredShadowText(medium, cx, Sc(48) + large.line_height + Sc(2), nick, kNick, 0);
+  } else {
+    const OverlayFont* nf = &huge;
+    if (TextWidth(*nf, name, 0) > W - Sc(120)) nf = &large;
+    Fit(*nf, name, W - Sc(120), 0);
+    CenteredShadowText(*nf, cx, Sc(58) + (huge.line_height - nf->line_height) / 2, name, kWhite, 0);
+  }
 
   // Element / game / series cards.
   const int cy = Sc(492), ch = Sc(96), cw = Sc(300), gap = Sc(20);
@@ -574,24 +680,44 @@ void RenderStrip(const Scene& s, Strip* strip) {
   Ring(cx - lw / 2 - dot * 2 - Sc(6), sy + medium.ascent / 2 + Sc(1), dot, 0, sc, 255);
   ShadowText(medium, cx - lw / 2, sy, line, sc, 0);
 
-  // Button hints.
+  // Button hints. START (a nickname) and R3 (the next list: your lists, My Picks, one game's
+  // figures, everything) when there's room; D-PAD BROWSE makes way for them if it has to.
   const int hy = H - Sc(52);
-  int hw = HintWidth(small, "A", true, "ADD") + HintWidth(small, "Y", true, "SWAP IN") +
-           HintWidth(small, "B", true, "REMOVE") + HintWidth(small, "X", true, "CLEAR") +
-           HintWidth(small, "D-PAD", false, "BROWSE") + HintWidth(small, "LB+RB", false, "CLOSE") -
-           Sc(24);
-  // R3 goes to the next list (My Picks, one game's figures, everything), when there's room.
   const char* r3 = v.next_list;
-  const bool show_r3 = r3[0] && hw + HintWidth(small, "R3", false, r3) <= W - Sc(40);
-  if (show_r3) hw += HintWidth(small, "R3", false, r3);
+  const int room = W - Sc(40);
+  const int base = HintWidth(small, "A", true, "ADD") + HintWidth(small, "Y", true, "SWAP IN") +
+                   HintWidth(small, "B", true, "REMOVE") + HintWidth(small, "X", true, "CLEAR") +
+                   HintWidth(small, "LB+RB", false, "CLOSE") - Sc(24);
+  const int dpad_w = HintWidth(small, "D-PAD", false, "BROWSE");
+  const int start_w = v.start_hint ? HintWidth(small, "START", false, "NICKNAME") : 0;
+  const int r3_w = r3[0] ? HintWidth(small, "R3", false, r3) : 0;
+  bool show_dpad = true, show_start = v.start_hint, show_r3 = r3[0] != 0;
+  int need = base + dpad_w + start_w + r3_w;
+  if (need > room) {  // D-PAD makes way first, then START, then R3
+    show_dpad = false;
+    need -= dpad_w;
+  }
+  if (need > room && show_start) {
+    show_start = false;
+    need -= start_w;
+  }
+  if (need > room && show_r3) {
+    show_r3 = false;
+    need -= r3_w;
+  }
+  if (!show_dpad && need + dpad_w <= room) show_dpad = true;
+  const int hw = base + (show_dpad ? dpad_w : 0) + (show_start ? start_w : 0) + (show_r3 ? r3_w : 0);
   int hx = cx - hw / 2;
   ButtonHint(small, &hx, hy, "A", kBtnA, "ADD");
   ButtonHint(small, &hx, hy, "Y", kBtnY, "SWAP IN");
   ButtonHint(small, &hx, hy, "B", kBtnB, "REMOVE");
   ButtonHint(small, &hx, hy, "X", kBtnX, "CLEAR");
-  ButtonHint(small, &hx, hy, "D-PAD", 0, "BROWSE");
+  if (show_dpad) ButtonHint(small, &hx, hy, "D-PAD", 0, "BROWSE");
+  if (show_start) ButtonHint(small, &hx, hy, "START", 0, "NICKNAME");
   if (show_r3) ButtonHint(small, &hx, hy, "R3", 0, r3);
   ButtonHint(small, &hx, hy, "LB+RB", 0, "CLOSE");
+
+  if (v.kb_open) KeyboardPanel(v, large, medium, small);
 }
 
 void BackgroundRows(int bw, int bh, int w, int h, int y0, int y1, int* first, int* last) {

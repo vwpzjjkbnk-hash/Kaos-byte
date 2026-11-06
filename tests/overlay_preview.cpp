@@ -110,6 +110,7 @@ int main(int argc, char** argv) {
   strcpy(v.image, "3. Swap Force\\Shadow Bottom.qoi");
   v.portal_count = 3;
   strcpy(v.portal_names, "Spyro, Tree Rex, Kaos (Doom Raider), Wildfire, Food Fight");
+  strcpy(v.remote, "192.168.1.23");  // the phone remote's address under the brand
   snprintf(path, sizeof(path), "%s_swapper.ppm", prefix);
   Render(assets, path, 1280, 720, v);
 
@@ -153,6 +154,39 @@ int main(int argc, char** argv) {
   strcpy(v.group, "Imaginators / Senseis");
   strcpy(v.image, "6. Imaginators\\King Pen.qoi");
   snprintf(path, sizeof(path), "%s_576.ppm", prefix);
+  Render(assets, path, 1024, 576, v);
+
+  // A figure with a nickname (under its name), START in the hints.
+  memset(&v, 0, sizeof(v));
+  v.pos = 3;
+  v.count = 516;
+  v.id = 9;
+  v.name = "Chop Chop";
+  v.element = elements::kUndead;
+  v.game = 1;
+  strcpy(v.series, "Series 1");
+  strcpy(v.group, "Favorites / Skylanders / Undead");
+  strcpy(v.image, "Cards 1/Chop Chop.qoi");
+  strcpy(v.nickname, "Sir Chops-a-Lot");
+  v.start_hint = true;
+  strcpy(v.next_list, "SPEEDRUN");
+  strcpy(v.remote, "192.168.1.23");
+  snprintf(path, sizeof(path), "%s_nickname.ppm", prefix);
+  Render(assets, path, 1280, 720, v);
+
+  // The nickname keyboard (START), part way through typing, CAPS off, on the "o".
+  v.kb_open = true;
+  strcpy(v.kb_text, "Sir Cho");
+  v.kb_row = 1;
+  v.kb_col = 4;
+  snprintf(path, sizeof(path), "%s_keyboard.ppm", prefix);
+  Render(assets, path, 1280, 720, v);
+  // ... in a 576-line frame, CAPS on, DONE picked.
+  v.kb_caps = true;
+  v.kb_row = 4;
+  v.kb_col = 8;
+  strcpy(v.kb_text, "");
+  snprintf(path, sizeof(path), "%s_keyboard576.ppm", prefix);
   Render(assets, path, 1024, 576, v);
   return 0;
 }

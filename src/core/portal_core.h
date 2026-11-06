@@ -69,6 +69,9 @@ class VirtualPortal {
   // Hands out one figure the game has written to since the last call (including figures that
   // were removed with unsaved writes). Returns false when nothing is pending.
   bool TakeDirty(int* tag, u8* data /* kFigureSize */);
+  // Whether figure `tag` has game writes not handed out by TakeDirty yet (on the portal, or taken
+  // off): its file is behind until they're saved.
+  bool HasUnsaved(int tag) const;
 
   // Whether 'M' reports a speaker (Trap Team audio). Audio itself is always discarded.
   void SetSpeaker(bool speaker);

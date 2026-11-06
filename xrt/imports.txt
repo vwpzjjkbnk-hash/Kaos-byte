@@ -46,3 +46,22 @@ xam.xex       0x191  XamInputGetState           3
 xam.xex       0x1CF  XamGetCurrentTitleId       0
 xam.xex       0x290  XNotifyQueueUI             5  XNotifyQueueUI_raw
 xam.xex       0x2CA  XamShowMessageBoxUI        9
+xam.xex       0x2EC  XamIsUIActive              0
+
+# The phone remote (src/xbox/remote.cpp): XAM's sockets. Ordinals from Xenia's xam_table.inc;
+# every NetDll_ call takes the caller type first (1 = the title).
+xam.xex       0x003  NetDll_socket              4
+xam.xex       0x004  NetDll_closesocket         2
+xam.xex       0x005  NetDll_shutdown            3
+xam.xex       0x006  NetDll_ioctlsocket         4
+xam.xex       0x007  NetDll_setsockopt          6
+xam.xex       0x00B  NetDll_bind                4
+xam.xex       0x00D  NetDll_listen              3
+xam.xex       0x00E  NetDll_accept              4
+xam.xex       0x00F  NetDll_select              6
+xam.xex       0x012  NetDll_recv                5
+xam.xex       0x016  NetDll_send                5
+xam.xex       0x01B  NetDll_WSAGetLastError     0
+xam.xex       0x001  NetDll_WSAStartup          3
+xam.xex       0x033  NetDll_XNetStartup         2
+xam.xex       0x049  NetDll_XNetGetTitleXnAddr  2

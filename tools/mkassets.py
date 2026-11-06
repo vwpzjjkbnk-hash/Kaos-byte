@@ -47,6 +47,8 @@ SENSEIS = {  # Imaginators Senseis (skylanderswiki.com/wiki/Sensei) and guest st
     "Dr. Neo Cortex": "Tech",
     "VVind Up": "Tech",  # Gear Head VVind Up (unreleased Wind-Up variant)
 }
+# Dolphin's table gets these wrong (skylanderswiki.com): Astroblast is a Light SuperCharger.
+DOLPHIN_FIXES = {"Astroblast": "Light"}
 # Category folder (without its "N) " prefix), lower case -> series text shown in the menu.
 CATEGORY = {
     "figures": "Series 1", "giants": "Giant", "new (series 1)": "Series 1", "lightcores": "LightCore",
@@ -298,6 +300,7 @@ def dolphin_elements(path):
             continue
         base = re.sub(r"\s*\([^)]*\)", "", name).strip()
         names.setdefault(norm(base), element)
+    names.update({norm(k): v for k, v in DOLPHIN_FIXES.items()})
     return names
 
 

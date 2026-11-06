@@ -1,6 +1,6 @@
 # Credits
 
-Project Kaos-Byte2.0v (The Static Rift) is built on other people's work. Thank you all.
+Project Kaos-Byte4.1.0v (The Static Rift) is built on other people's work. Thank you all.
 
 ## Code and documentation
 
@@ -9,9 +9,9 @@ Project Kaos-Byte2.0v (The Static Rift) is built on other people's work. Thank y
 | [TheBiemGamer/skylanders-portal](https://github.com/TheBiemGamer/skylanders-portal) | Software Portal of Power and the Xbox 360 frame bridge | Ported to C++ in `src/core/portal_core.cpp` | MIT |
 | Dolphin, RPCS3 and Cemu emulator teams | Portal of Power emulation (what skylanders-portal was built from) | Indirectly, through the above | GPL-2.0+ |
 | [openpak/x360-sdk ("xsdk")](https://github.com/openpak/x360-sdk) by Mena | Open Xbox 360 toolchain: `elf2xex.py`, import thunks, linker script, hardware notes | The no-XDK build in `xrt/` | MIT |
-| [Xenia](https://github.com/xenia-project/xenia) and [Xenia Canary](https://github.com/xenia-canary/xenia-canary) | XAM portal API signatures, kernel ordinals, tiled front-buffer addressing, memory call signatures | Reference; the tiled-address formula is ported | BSD |
+| [Xenia](https://github.com/xenia-project/xenia) and [Xenia Canary](https://github.com/xenia-canary/xenia-canary) | XAM portal API signatures, kernel ordinals, tiled front-buffer addressing, memory call signatures; the phone remote's NetDll socket ordinals, signatures and the insecure-socket option | Reference; the tiled-address formula is ported | BSD |
 | [Dolphin Emulator](https://github.com/dolphin-emu/dolphin) | Skylander list (names and elements) | Read by `tools/mkassets.py` at build time only | GPL-2.0+ |
-| [Peer Pressure](https://github.com/grimdoomer/Xbox360PeerPressure) by grimdoomer | Xbox 360 softmod with DLL sideloading | Loads the plugin into each game | (see its repo) |
+| [Peer Pressure](https://github.com/grimdoomer/Xbox360PeerPressure) by grimdoomer | Xbox 360 softmod with DLL sideloading; lifts the insecure-socket restriction the phone remote relies on | Loads the plugin into each game | (see its repo) |
 | Dashlaunch by cOz; [BadUpdate](https://github.com/grimdoomer/Xbox360BadUpdate) by grimdoomer; [XeUnshackle](https://github.com/Byrom90/XeUnshackle) by Byrom90 | Plugin loading on RGH / JTAG and on BadUpdate consoles | Load the RGH build (no code used) | (see their releases) |
 | [RB3Enhanced](https://github.com/RBEnhanced/RB3Enhanced) | Sideload `.ini` format example | The six `.ini` files follow it | (see its repo) |
 | [Texthead1/Runes](https://github.com/Texthead1/Runes) | Skylander figure format docs (error byte) | Background for the Error Bypass dumps | (see its repo) |
@@ -19,7 +19,7 @@ Project Kaos-Byte2.0v (The Static Rift) is built on other people's work. Thank y
 | [QOI](https://qoiformat.org) by Dominic Szablewski | Image format for the menu pictures | Decoder and encoder written from the spec | MIT / CC0 |
 | [DejaVu Fonts](https://dejavu-fonts.github.io) (Bitstream Vera) | DejaVu Sans Bold | Rasterized into `src/xbox/overlay_font.h` | Bitstream Vera license |
 | [Unicorn Engine](https://www.unicorn-engine.org) | CPU emulator | Test suite only (`tests/emu`), not shipped | GPL-2.0 |
-| [Pillow](https://python-pillow.org), [LLVM/clang](https://llvm.org) | Image processing, compiler | Build tools only | HPND, Apache-2.0 |
+| [Pillow](https://python-pillow.org), [LLVM/clang](https://llvm.org), [Playwright](https://playwright.dev) | Image processing, compiler, the phone remote test's browser | Build and test tools only | HPND, Apache-2.0, Apache-2.0 |
 
 Full license texts are in [THIRD_PARTY.md](THIRD_PARTY.md).
 

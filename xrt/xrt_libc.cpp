@@ -134,6 +134,20 @@ int strncmp(const char* a, const char* b, size_t n) {
   return 0;
 }
 
+char* strstr(const char* haystack, const char* needle) {
+  if (!*needle) return const_cast<char*>(haystack);
+  for (; *haystack; ++haystack) {
+    const char* h = haystack;
+    const char* n = needle;
+    while (*h && *n && *h == *n) {
+      ++h;
+      ++n;
+    }
+    if (!*n) return const_cast<char*>(haystack);
+  }
+  return 0;
+}
+
 // MSVC semantics as the plugin uses them: count == _TRUNCATE copies as much as fits and always
 // terminates. Returns 0, or 80 (STRUNCATE) when truncated.
 int strncpy_s(char* dst, size_t cap, const char* src, size_t count) {

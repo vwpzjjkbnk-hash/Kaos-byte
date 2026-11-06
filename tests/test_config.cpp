@@ -47,8 +47,11 @@ int main(int argc, char** argv) {
   CHECK(c.GetBool("General", "Speaker", false));
   CHECK(!strcmp(c.Get("Controls", "Modifier", "?"), "LB+RB"));
   CHECK(!c.GetBool("Titles", "PatchAllTitles", true));
-  CHECK(c.GetBool("Menu", "NewestOnly", false));
+  CHECK(!c.GetBool("Menu", "NewestOnly", true));  // ALL lists every release
+  CHECK(c.GetBool("Menu", "PauseGame", false));   // every game pauses behind the menu
   CHECK(c.GetBool("Menu", "OnlyCompatible", false));
+  CHECK(c.GetBool("Remote", "Enabled", false));    // the phone remote is on
+  CHECK(c.GetInt("Remote", "Port", 0) == 80);
   const char* k;
   const char* v;
   int startup = 0;

@@ -223,6 +223,7 @@ class Console:
         self.yield_after = None
         self.pad = {"buttons": 0, "lt": 0, "rt": 0, "packet": 1}
         self.title_id = 0x41560911
+        self.ui_active = 0
         self.system_dll = False
         self.current_thread = None
         self.fs = FakeFs()
@@ -772,6 +773,9 @@ def x_get_state(c, user, flags, state_p):
 def x_title_id(c):
     return c.title_id
 
+def x_ui_active(c):
+    return c.ui_active  # the Xbox Guide (or another system screen) is up
+
 def x_notify(c, kind, user, areas, text_p, ctx):
     raw = b""
     while True:
@@ -889,6 +893,7 @@ EXPORTS = {
     (LIB_XAM, XAM_GETSTATE): ("XamInputGetState", 3, x_get_state),
     (LIB_XAM, XAM_TITLEID): ("XamGetCurrentTitleId", 0, x_title_id),
     (LIB_XAM, 0x290): ("XNotifyQueueUI", 5, x_notify),
+    (LIB_XAM, 0x2EC): ("XamIsUIActive", 0, x_ui_active),
     (LIB_XAM, XAM_GETRAW): ("XamInputNonControllerGetRaw", 3, x_raw_passthrough),
     (LIB_XAM, XAM_SETRAW): ("XamInputNonControllerSetRaw", 2, x_raw_passthrough),
 }
@@ -969,6 +974,7 @@ def run_pop_menu(c, worker, LB, RB, A):
     c.run_thread(worker, 45)  # 0.9 s
     log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
     check("Swapped in Tree Rex" in log, "log: Tree Rex swapped in once the game had seen the rift empty")
+    c.run_thread(worker, 60)  # (rift_state.txt is written a second after the rift settles)
     state_txt = bytes(c.fs.read("hdd/The Static Rift/rift_state.txt") or b"").decode()
     check("Giants\\Tree Rex.bin" in state_txt and "Spyro.bin" not in state_txt, "rift_state.txt: Tree Rex only")
 
@@ -982,6 +988,7 @@ def run_pop_menu(c, worker, LB, RB, A):
           "box: the trap, Swap in")
     press(1)  # Swap in
     log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    c.run_thread(worker, 60)  # (rift_state.txt is written a second after the rift settles)
     state_txt = bytes(c.fs.read("hdd/The Static Rift/rift_state.txt") or b"").decode()
     check("Swap: taking Tree Rex off" not in log and "Swapped in Air Toucan" in log and
           "Giants\\Tree Rex.bin" in state_txt and "Air Toucan.bin" in state_txt,
@@ -1163,6 +1170,43 @@ def run_drawn_menu(c, worker, game_stack, vdswap_thunk, gfx_thunk, state_thunk, 
     check("Placed 'Giants\\Tree Rex.bin'" in log, "A puts Tree Rex on the portal")
     check(not any("Tree Rex" in t for t in c.toasts), "no toasts with the menu up")
 
+    print("skydrawn: START gives Tree Rex a nickname with the menu's own keyboard")
+    UP, DOWN, LEFT, START, BACK = 0x0001, 0x0002, 0x0004, 0x0010, 0x0020
+    B, X = 0x2000, 0x4000
+    before = c.u32(current)
+    tap(START)
+    run_draw_until(lambda: c.u32(current) not in (0, before), "the keyboard is drawn")
+    save_png(c.u32(c.u32(current) + 24), "emu_keyboard.png")
+    log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    check("Menu: nickname keyboard for Tree Rex" in log, "START opens the nickname keyboard")
+    # "R" (row 1, column 7: a capital first letter), "e" (row 0, column 4), "x" (2, 3), "y" (2, 4),
+    # a space (X) taken back (B), then START saves.
+    for key in [DOWN] + [RIGHT] * 7 + [A, UP, LEFT, LEFT, LEFT, A, DOWN, DOWN, LEFT, A, RIGHT, A, X, B]:
+        tap(key)
+    c.pad["buttons"] = A | B  # the game never sees what's typed
+    check(game_buttons() == 0, "keyboard: buttons hidden from the game")
+    c.pad["buttons"] = 0
+    c.run_thread(worker, 1)
+    tap(START)
+    log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    nick = bytes(c.fs.read("hdd/The Static Rift/nicknames.ini") or b"").decode("latin-1")
+    check('Nickname: Giants\\Tree Rex.bin is "Rexy"' in log, "typed and saved: Rexy")
+    check("Giants\\Tree Rex.bin = Rexy\r\n" in nick, f"nicknames.ini has it ({nick.splitlines()[-1:] if nick else None})")
+    before = c.u32(current)
+    run_draw_until(lambda: c.u32(current) not in (0, before), "the menu is drawn again, with the nickname")
+    save_png(c.u32(c.u32(current) + 24), "emu_nickname.png")
+    # Again, then BACK: nothing changes.
+    tap(START)
+    for key in [B, B, A]:
+        tap(key)
+    tap(BACK)
+    nick2 = bytes(c.fs.read("hdd/The Static Rift/nicknames.ini") or b"").decode("latin-1")
+    check(nick2 == nick, "BACK leaves the nickname as it was")
+    tap(RIGHT)  # the menu has the controller back (Right moves on, then back)
+    tap(LEFT)
+    log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    check(log.count("Menu: nickname keyboard for Tree Rex") == 2, "the keyboard closed: the menu has the pad again")
+
     print("skydrawn: another tap of LB+RB closes it")
     c.pad["buttons"] = LB | RB
     c.run_thread(worker, 2)
@@ -1264,6 +1308,101 @@ def run_drawn_menu(c, worker, game_stack, vdswap_thunk, gfx_thunk, state_thunk, 
     log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
     check("game paused, drawing into its own front buffers" in log, "log: the game's frames were used")
 
+    print("skydrawn: [Menu] PauseGame = 1: the game stops behind the menu's own frames too")
+    set_always_pause = sym["_ZN7overlay14SetAlwaysPauseEb"]
+    paused_own = sym["_ZN7overlay12_GLOBAL__N_112g_paused_ownE"]
+    c.call(set_always_pause, [1], game_stack, label="overlay::SetAlwaysPause(true)")
+    c.phys_next = saved_next  # memory for two frames of its own again
+    game_pixels = (bytes(c.mem(fbs[0], 4096)), bytes(c.mem(fbs[1], 4096)))
+    present(1)
+    present(0)
+    on_screen = scanout()  # the game's frame on screen before the menu
+    tap()
+    for _ in range(60):
+        if c.u32(current):
+            break
+        c.run_thread(draw, 2)
+    check(c.u32(current) != 0 and len(surfaces()) == 2, "the menu opens in two frames of its own")
+    check(c.mem(paused_own, 1) == b"\x01", "the pause is asked for as the menu opens")
+    swaps_before = len(c.vdswaps)
+    game = present_start(0, 1)  # the game's next frame: held in VdSwap
+    check(not game["done"], "PauseGame: the game's render thread waits inside its VdSwap call")
+    check(len(c.vdswaps) == swaps_before, "PauseGame: no frames presented while the menu is open")
+    c.run_thread(pin, 2)
+    first = c.u32(sym["sp_pin_phys"])
+    check(first != 0 and scanout() == first, "PauseGame: the menu is on screen through the scan-out thread")
+    c.pad["buttons"] = RIGHT
+    c.run_thread(worker, 2)
+    c.pad["buttons"] = 0
+    c.run_thread(worker, 2)
+    for _ in range(80):
+        c.run_thread(draw, 2)
+        if c.u32(sym["sp_pin_phys"]) not in (0, first):
+            break
+    c.run_thread(pin, 2)
+    check(c.u32(sym["sp_pin_phys"]) not in (0, first) and scanout() == c.u32(sym["sp_pin_phys"]),
+          "PauseGame: the next figure is drawn into the other menu frame and shown, the game still stopped")
+    check(not game["done"] and (bytes(c.mem(fbs[0], 4096)), bytes(c.mem(fbs[1], 4096))) == game_pixels,
+          "PauseGame: the game's buffers untouched")
+    tap()
+    for _ in range(10):
+        c.run_thread(draw, 2)
+    game = c.call_resume(game, 5)
+    check(game["done"], "PauseGame: closed, the game carries on (its VdSwap returns)")
+    check(len(c.vdswaps) == swaps_before + 1 and c.vdswaps[-1][1] == scratch + 0x300,
+          "PauseGame: the held frame is presented with the game's own arguments, not the menu's")
+    check(c.mem(paused_own, 1) == b"\x00", "PauseGame: nothing left paused")
+    c.run_thread(pin, 2)
+    check(scanout() == on_screen and on_screen in (fbs[0] & 0x1FFFFFFF, fbs[1] & 0x1FFFFFFF),
+          f"PauseGame: the display back on the game's frame ({scanout():#x})")
+    run_draw_until(lambda: not surfaces(), "PauseGame: menu frames freed after closing")
+
+    print("skydrawn: the Guide button with the menu up: the game carries on and the menu closes")
+    present(1)
+    present(0)
+    tap()
+    for _ in range(60):
+        if c.u32(current):
+            break
+        c.run_thread(draw, 2)
+    game = present_start(0, 1)
+    check(c.u32(current) != 0 and not game["done"], "Guide: the menu is up and the game waits behind it")
+    swaps_before = len(c.vdswaps)
+    c.ui_active = 1  # the Xbox Guide opens (it's drawn through the game's own frames)
+    game = c.call_resume(game, 5)
+    check(game["done"] and len(c.vdswaps) == swaps_before + 1,
+          "Guide: the game's held frame goes through at once, without waiting for the menu")
+    c.run_thread(worker, 2)
+    for _ in range(10):
+        c.run_thread(draw, 2)
+    log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    check("Menu: closed for the Xbox Guide" in log, "Guide: the menu closes by itself")
+    check(c.u32(current) == 0, "Guide: the menu frame is withdrawn")
+    want, got = present(0)
+    check(got == tuple(want), "Guide: the game presents its own frames again (the Guide's among them)")
+    c.run_thread(worker, 2)  # pad idle: the controller goes back to the game
+    opens = log.count("Menu opened")
+    tap()
+    log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    check(log.count("Menu opened") == opens, "Guide: LB+RB doesn't open the menu over the Guide")
+    c.ui_active = 0  # the Guide closed
+    c.run_thread(pin, 2)
+    run_draw_until(lambda: not surfaces(), "Guide: menu frames freed")
+    tap()
+    log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
+    check(log.count("Menu opened") == opens + 1, "Guide closed: LB+RB opens the menu again")
+    for _ in range(60):
+        if c.u32(current):
+            break
+        c.run_thread(draw, 2)
+    tap()
+    for _ in range(10):
+        c.run_thread(draw, 2)
+        present(0)
+    c.run_thread(pin, 2)
+    run_draw_until(lambda: not surfaces(), "Guide closed: the menu closes as usual")
+    c.call(set_always_pause, [0], game_stack, label="overlay::SetAlwaysPause(false)")
+
     print("skydrawn: room for one menu frame only (and the game not pausing): one frame")
     c.phys_next = PHYS_POOL + PHYS_POOL_SIZE - 0x600000  # 6 MB left: one frame and the margin
     tap()
@@ -1315,8 +1454,11 @@ def main():
         "[Controls]\r\nModifier = LB+RB\r\nHideComboFromGame = 1\r\n"
         "[Startup]\r\nFigure1 = Spyro\r\n"
         # The menu walk-throughs below go folder by folder (Spyro, then Tree Rex); the order by
-        # type and My Picks get their own round at the end of the Dashlaunch run.
-        "[Menu]\r\nSortByType = 0\r\n").encode())
+        # type and My Picks get their own round at the end of the Dashlaunch run. The game keeps
+        # running behind the menu here; PauseGame (on in the shipped file) has a round of its own.
+        "[Menu]\r\nSortByType = 0\r\nPauseGame = 0\r\n"
+        # The phone remote has a round of its own (run_remote.py), with real sockets.
+        "[Remote]\r\nEnabled = 0\r\n").encode())
     spyro, tree_rex = figure(3), figure(9)
     c.fs.write("hdd/The Static Rift/Figures/Spyro.bin", spyro)
     c.fs.write("hdd/The Static Rift/Figures/Giants/Tree Rex.bin", tree_rex)
@@ -1529,6 +1671,7 @@ def main():
         check(any(t.startswith("Spyro [on the rift]") for t in c.toasts), "toast: current selection")
         check(any(t.startswith("Tree Rex  (2/3)") for t in c.toasts), "toast: moved to Tree Rex")
         check(any(t == "+ Tree Rex placed on the rift" for t in c.toasts), "toast: Tree Rex placed")
+        c.run_thread(worker, 60)  # (rift_state.txt is written a second after the rift settles)
         state_txt = bytes(c.fs.read("hdd/The Static Rift/rift_state.txt") or b"").decode()
         check("Spyro.bin" in state_txt and "Giants\\Tree Rex.bin" in state_txt, "rift_state.txt remembers both")
     elif variant == "pop":
@@ -1733,7 +1876,8 @@ def main():
         c.run_thread(pin, 2)
         log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
         tail = log[log.rfind("Title now 41560911"):]
-        check("My Picks for Trap Team: 2 name(s) in picks.ini" in tail, "picks.ini: Trap Team's two names read")
+        check("My Picks for Trap Team: 3 name(s) from 2 roster(s) in picks.ini" in tail,
+              "picks.ini: Trap Team's roster (two names) and Giants' (one) read")
         check("Menu order: by type" in tail, "log: menu order by type")
         c.pad["buttons"] = LB | RB
         c.run_thread(worker, 2)
@@ -1750,8 +1894,10 @@ def main():
         c.run_thread(worker, 2)
         log = bytes(c.fs.read("hdd/The Static Rift/staticrift.log") or b"").decode("latin-1")
         tail = log[log.rfind("Title now 41560911"):]
-        check("Menu: My Picks (2 figures)" in tail and "Menu: 1 of 2 picks found for this game" in tail,
-              "R3: My Picks - Tree Rex and the trap (Spyro isn't a pick; 'Nobody' isn't a figure)")
+        check("Menu: My Picks (3 figures)" in tail and "Menu: 2 of 3 picks found for this game" in tail and
+              'Menu: no figure for the pick "Nobody"' in tail,
+              "R3: My Picks - Trap Team's roster (Tree Rex), Giants' (Spyro), then the trap; 'Nobody' "
+              "isn't a figure")
         lists = []
         for _ in range(8):  # R3 again: each game's own figures, then everything
             c.pad["buttons"] = R3
